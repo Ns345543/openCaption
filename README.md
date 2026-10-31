@@ -7,6 +7,9 @@ No Media Encoder, no render, no upload of your whole sequence: the panel reads t
 timeline structure, slices audio straight out of your **original source media**
 with ffmpeg, and sends 30-second windows to Gemini.
 
+**Download:** [latest release](https://github.com/Ns345543/openCaption/releases/latest)
+— Windows installer zip (recommended) or the ZXP for extension managers.
+
 ```
 timeline ──► clip list (ExtendScript)          paths + in/out points + positions
          ──► ffmpeg seeks into source media    30s PCM window, gaps = silence

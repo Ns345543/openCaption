@@ -1,0 +1,19 @@
+# Downloaded binary, never commit
+extension/tools/ffmpeg/
+
+# Build output and tooling
+dist/
+.build/
+
+# Local scratch
+*.log
+*.tmp
+.DS_Store
+.rnd
+
+# CEP live-debug port (created by .\install.ps1 for development)
+extension/.debug
+
+# Captions produced while testing
+captions/
+*_test.srt

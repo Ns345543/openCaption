@@ -1,0 +1,29 @@
+Caption AI — third-party notices
+================================
+
+This extension ships one third-party program.
+
+FFmpeg (ffmpeg.exe)
+-------------------
+Bundled as tools/ffmpeg/ffmpeg.exe so the panel can read audio from your media
+without installing anything.
+
+  Build        : ffmpeg version 9.0.2-essentials_build, by www.gyan.dev
+  License      : GNU General Public License v3 (the build enables --enable-gpl
+                 and --enable-version3)
+  Project      : https://ffmpeg.org/
+  Build source : https://www.gyan.dev/ffmpeg/builds/
+  Source code  : https://ffmpeg.org/download.html#get-sources
+                 https://www.gyan.dev/ffmpeg/builds/#sources
+
+FFmpeg is free software. It is bundled unmodified, solely as a separate
+executable that the panel launches. The panel itself is MIT licensed (see
+LICENSE) and is not a derivative work of FFmpeg.
+
+You may redistribute this package with FFmpeg included, provided you keep this
+notice and, on request, make the corresponding FFmpeg source available (the
+links above are the exact source locations for the bundled build). If you would
+rather not redistribute FFmpeg, ship the panel without tools/ffmpeg and let
+users point it at their own ffmpeg.exe under Advanced.
+
+A copy of the GPL v3 is at https://www.gnu.org/licenses/gpl-3.0.txt

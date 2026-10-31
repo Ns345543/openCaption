@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Caption AI</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div class="app">
+
+  <div class="aurora" aria-hidden="true">
+    <span class="blob blob-a"></span>
+    <span class="blob blob-b"></span>
+    <span class="blob blob-c"></span>
+  </div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo"><span class="logo-core"></span></span>
+      <span class="brand-text">
+        <span class="brand-name">Caption<span class="accent">AI</span></span>
+        <span class="brand-sub">neural subtitle engine</span>
+      </span>
+    </div>
+    <div class="host" id="hostInfo">connecting…</div>
+  </header>
+
+  <main class="scroll">
+
+    <!-- ================= 01 · key ================= -->
+    <section class="card">
+      <div class="card-head">
+        <span class="num">01</span>
+        <h2>API access</h2>
+        <span class="badge" id="keyBadge">no key</span>
+      </div>
+
+      <div class="row">
+        <div class="input-wrap">
+          <input id="apiKey" type="password" placeholder="AIza…" spellcheck="false" autocomplete="off" />
+          <button id="toggleKey" class="ghost-btn" title="Show / hide">show</button>
+        </div>
+      </div>
+
+      <div class="row wrap">
+        <button id="saveKey" class="btn primary sm">Save key</button>
+        <button id="testKey" class="btn sm">Verify</button>
+        <button id="clearKey" class="btn sm ghost">Clear</button>
+      </div>
+
+      <p class="hint">
+        Key from <a href="https://aistudio.google.com/apikey" data-ext="link">aistudio.google.com/apikey</a>
+        · stored locally in <code>%APPDATA%\CaptionAI</code>
+      </p>
+    </section>
+
+    <!-- ================= 02 · transcription ================= -->
+    <section class="card">
+      <div class="card-head">
+        <span class="num">02</span>
+        <h2>Transcription</h2>
+      </div>
+
+      <div class="grid2">
+        <div class="field">
+          <span class="field-head">Model
+            <span class="field-actions">
+              <button id="testModel" class="linkbtn" title="Text-only request to check the model responds">test</button>
+              <button id="refreshModels" class="linkbtn" title="Ask the API which models this key can use">refresh</button>
+            </span>
+          </span>
+          <select id="model">
+            <option value="gemini-3.5-flash-lite">gemini-3.5-flash-lite</option>
+            <option value="gemini-3.8-flash">gemini-3.8-flash</option>
+            <option value="gemini-3.7-flash">gemini-3.7-flash</option>
+            <option value="gemini-3.5-flash">gemini-3.5-flash</option>
+            <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+            <option value="__custom">Custom…</option>
+          </select>
+        </div>
+
+        <label class="field">
+          <span>Language</span>
+          <select id="language">
+            <option value="auto">Auto-detect</option>
+            <option value="Hinglish">Hinglish (Roman)</option>
+            <option value="Hindi">Hindi (Devanagari)</option>
+            <option value="English">English</option>
+            <option value="Spanish">Spanish</option>
+            <option value="French">French</option>
+            <option value="German">German</option>
+            <option value="Italian">Italian</option>
+            <option value="Portuguese">Portuguese</option>
+            <option value="Japanese">Japanese</option>
+            <option value="Korean">Korean</option>
+            <option value="Chinese (Simplified)">Chinese (Simplified)</option>
+            <option value="Arabic">Arabic</option>
+            <option value="Russian">Russian</option>
+            <option value="Turkish">Turkish</option>
+          </select>
+        </label>
+      </div>
+
+      <label class="field hidden" id="customModelWrap">
+        <span>Custom model id</span>
+        <input id="customModel" placeholder="e.g. gemini-3.8-flash" spellcheck="false" />
+      </label>
+
+      <div class="field">
+        <span>Caption range</span>
+        <div class="seg" id="scope">
+          <button data-scope="auto" class="active" title="Selected clips, else work area, else whole sequence">Auto</button>
+          <button data-scope="sequence" title="The whole sequence">Sequence</button>
+          <button data-scope="workarea" title="Only the work area">Work area</button>
+          <button data-scope="selection" title="Only the selected clips">Selection</button>
+        </div>
+        <p class="hint tight">Auto = selected clips, else the work area, else the whole sequence.</p>
+      </div>
+
+      <div class="grid2">
+        <label class="field">
+          <span>Words / line</span>
+          <select id="wordsPerLine">
+            <option value="1">1</option>
+            <option value="2" selected>2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Lines / caption</span>
+          <select id="maxLines">
+            <option value="1" selected>1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+          </select>
+        </label>
+      </div>
+      <p class="hint tight" id="captionShape">Two words per caption.</p>
+
+      <div class="switches">
+        <label class="switch">
+          <input type="checkbox" id="snapPauses" checked />
+          <span class="track"><span class="knob"></span></span>
+          <span class="switch-label">Word-level sync</span>
+        </label>
+        <label class="switch">
+          <input type="checkbox" id="autoImport" checked />
+          <span class="track"><span class="knob"></span></span>
+          <span class="switch-label">Build caption track</span>
+        </label>
+      </div>
+      <p class="hint tight">Word-level sync pins every caption to the moment the words are actually audible in the audio, measured from the waveform (recommended).</p>
+    </section>
+
+    <!-- ================= run ================= -->
+    <div class="run-row">
+      <button id="generate" class="btn primary wide">
+        <span class="btn-label">Generate captions</span>
+        <span class="btn-glow"></span>
+      </button>
+      <button id="cancel" class="btn stop hidden" title="Stop generating (Esc)">Stop</button>
+    </div>
+
+    <div class="progress-wrap">
+      <div class="progress"><div class="bar" id="bar"></div></div>
+      <div class="progress-label" id="progressLabel">idle</div>
+    </div>
+
+    <div class="log" id="log"></div>
+
+    <!-- ================= advanced ================= -->
+    <details class="card adv">
+      <summary>
+        <span class="chev">›</span> Advanced
+      </summary>
+
+      <label class="field">
+        <span>ffmpeg executable</span>
+        <div class="row">
+          <input id="ffmpegPath" placeholder="auto-detect" spellcheck="false" />
+          <button id="browseFfmpeg" class="btn sm">Browse</button>
+        </div>
+      </label>
+
+      <div class="grid3">
+        <label class="field">
+          <span>Chunk (s)</span>
+          <input id="chunkSec" type="number" min="10" max="120" value="30" />
+        </label>
+        <label class="field">
+          <span>Parallel</span>
+          <input id="concurrency" type="number" min="1" max="6" value="3" />
+        </label>
+        <label class="field">
+          <span>Speech dB</span>
+          <input id="silenceDb" type="number" min="-60" max="-10" value="-35" />
+        </label>
+      </div>
+
+      <div class="row wrap">
+        <button id="openDataFolder" class="btn sm ghost">Data folder</button>
+        <button id="openCaptionFolder" class="btn sm ghost">Captions folder</button>
+      </div>
+    </details>
+
+    <footer class="foot">
+      <span class="dot"></span>
+      <span id="version"></span>
+    </footer>
+  </main>
+</div>
+
+<script src="js/nodeglue.js"></script>
+<script src="js/CSInterface.js"></script>
+<script src="js/config.js"></script>
+<script src="js/premiere.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/gemini.js"></script>
+<script src="js/srt.js"></script>
+<script src="js/roman.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

@@ -174,9 +174,9 @@
         </div>
 
         <label class="field">
-          <span>Language</span>
+          <span>Caption language</span>
           <select id="language">
-            <option value="auto">Auto-detect</option>
+            <option value="auto">Auto-detect (spoken language)</option>
             <option value="Hinglish">Hinglish (Roman)</option>
             <option value="Hindi">Hindi (Devanagari)</option>
             <option value="English">English</option>
@@ -194,6 +194,8 @@
           </select>
         </label>
       </div>
+
+      <p class="hint tight">Captions are written in this language. Speech in another language is translated; Auto-detect keeps whatever the speaker uses.</p>
 
       <label class="field hidden" id="customModelWrap">
         <span>Custom model id</span>
@@ -323,6 +325,7 @@
 <script src="js/gemini.js"></script>
 <script src="js/srt.js"></script>
 <script src="js/roman.js"></script>
+<script src="js/translate.js"></script>
 <script src="js/update.js"></script>
 <script src="js/app.js"></script>
 </body>

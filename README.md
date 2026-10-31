@@ -144,13 +144,19 @@ media, and whether `createCaptionTrack()` exists on your build. It changes nothi
    is going (or press **Esc**): it hangs up on every open request immediately and
    discards the partial result, so no caption track is created.
 
-Language matters for Hinglish. Pick **Hinglish (Roman)** and the model is told to
-write Hindi speech in Latin letters (`aaj hum naya project discuss karenge`), never
-Devanagari, keeping English words spelled normally. If a dedicated `*-transcribe`
-model ignores that and answers in Devanagari anyway, the panel rewrites the cues in
-Roman Hinglish before building the SRT (one small text-only request, with a
-built-in transliterator as fallback). **Hindi (Devanagari)** is a separate option
-if you want the native script.
+**Caption language** is the output language, not a guess about the audio. Pick
+**Spanish** and Hindi speech is translated into Spanish before the SRT is built;
+the same applies to French, Turkish, Japanese and the rest of the list.
+**Auto-detect (spoken language)** keeps whatever is spoken and never translates.
+**Hinglish (Roman)** writes Hindi speech in Latin letters
+(`aaj hum naya project discuss karenge`), never Devanagari, keeping English words
+spelled normally.
+
+A dedicated `*-transcribe` model always answers in the spoken language, and a
+general model can ignore the instruction when the scripts differ. In both cases
+the panel translates the cues in a second text-only pass before building the SRT.
+Cue timings are preserved, and if the translation request fails the original
+captions are kept with a warning instead of being lost.
 
 The panel writes `…\CaptionAI\captions\<sequence>_<timestamp>.srt` and, by default,
 imports it and calls `createCaptionTrack()` so a captions track appears on the
@@ -198,8 +204,8 @@ sequence.
   model is capped at **25 requests/day** (~12 minutes of audio at the 30 s chunk
   length), so use `flash-lite` — whose quota is separate — for long sequences; the
   panel then times the words from the measured waveform. Transcribe models also
-  pick the spoken language themselves, but selecting Hinglish still yields Roman
-  captions.
+  pick the spoken language themselves; the panel translates their output to the
+  selected caption language (or rewrites it in Roman Hinglish) in a second pass.
 
 ## How the timing is reconstructed
 
@@ -263,6 +269,10 @@ subtitles.
   very fast run of words can still be off by roughly a tenth of a second. A
   `*-transcribe` model avoids this by returning exact word times. A pass in the
   Text panel is still normal practice for broadcast.
+- **Translation** — the selected caption language is enforced by the prompt and,
+  when the output still uses the source script, by a second text pass. Changing
+  language inside the same script (English speech, Spanish captions) relies on the
+  model following the instruction; check the first cues before a long run.
 - **API key storage** is local obfuscation, not encryption. Anyone with access to
   your Windows account can read `%APPDATA%\CaptionAI\config.json`. That is fine for
   a personal tool; it is why no key is bundled.
@@ -327,6 +337,8 @@ extension/
   js/audio.js              ffmpeg slicing, PCM assembly, speech envelope
   js/gemini.js             REST calls, JSON schema, retries
   js/srt.js                word timing, cue clean-up, wrapping, SRT output
+  js/roman.js              Devanagari → Roman Hinglish
+  js/translate.js          forces the selected caption language
   js/update.js             GitHub release check + verified self-updater
   js/app.js                pipeline + UI
   jsx/host.jsx             ExtendScript: clip scan, SRT import, caption track

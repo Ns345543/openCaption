@@ -435,21 +435,52 @@ var Gemini = (function () {
 
   /* ---------------------------------------------------------------- prompting */
 
+  var SCRIPT_HINTS = {
+    'English': 'Use the Latin alphabet.',
+    'Spanish': 'Use the Latin alphabet.',
+    'French': 'Use the Latin alphabet.',
+    'German': 'Use the Latin alphabet.',
+    'Italian': 'Use the Latin alphabet.',
+    'Portuguese': 'Use the Latin alphabet.',
+    'Turkish': 'Use the Latin alphabet.',
+    'Hindi': 'Use Devanagari script, never Latin transliteration.',
+    'Chinese (Simplified)': 'Use Simplified Chinese characters.',
+    'Japanese': 'Use Japanese script (kanji and kana).',
+    'Korean': 'Use Hangul.',
+    'Arabic': 'Use Arabic script.',
+    'Russian': 'Use Cyrillic script.'
+  };
+
+  /**
+   * The language setting is the OUTPUT language, not a guess about the audio.
+   * The old wording ("The speech is in Spanish. Do not translate.") made the
+   * model keep Hindi speech in Devanagari when Spanish was selected.
+   */
   function languageRule(language) {
     if (!language || language === 'auto') {
-      return 'Transcribe in the original spoken language. Do not translate.';
+      return 'Detect the language actually spoken and transcribe it faithfully in that language. Do not translate.';
     }
     if (language === 'Hinglish') {
       return [
-        'The speech is Hindi, or a natural mix of Hindi and English (code-switching).',
-        'Write the transcript in ROMAN (Latin) letters only — Hinglish transliteration.',
+        'Write every caption in natural Hinglish — Hindi in Roman (Latin) letters, the way Hindi speakers type.',
+        'If the speech is Hindi or Hindi-English code-switching, transliterate it; do not translate it into English.',
+        'If the speech is in another language, translate it into Hindi and write that translation in Roman letters.',
         'NEVER output Devanagari or any other non-Latin script.',
         'Keep words the speaker actually says in English spelled normally (project, meeting, deadline, Friday).',
         'Spell Hindi words the way Indian speakers type them: hai, nahi, kya, matlab, thoda, bahut, karenge, samajh.',
         'Example: the Hindi sentence meaning "today we will discuss the new project" becomes "aaj hum naya project discuss karenge".'
       ].join(' ');
     }
-    return 'The speech is in ' + language + '. Transcribe it in ' + language + '. Do not translate it into another language.';
+
+    var hint = SCRIPT_HINTS[language] || '';
+    return [
+      'The captions must be written in ' + language + ', no matter which language is spoken in the audio.',
+      'Transcribe the speech accurately first, then translate the meaning into ' + language + ' whenever the speaker uses a different language.',
+      'Never leave a whole phrase in the spoken language and never mix two languages inside one cue unless a name or borrowed word has no natural translation.',
+      'Keep proper nouns, brand names, numbers and technical terms as they are.',
+      hint,
+      'The result must read naturally to a native ' + language + ' speaker.'
+    ].filter(Boolean).join(' ');
   }
 
   function buildPrompt(opts) {
@@ -464,8 +495,8 @@ var Gemini = (function () {
     var promptCap = Math.max(6, per * lines);
 
     return [
-      'You are a professional subtitle transcriber.',
-      'Transcribe ALL intelligible speech in this audio file, verbatim and in chronological order.',
+      'You are a professional subtitle transcriber and translator.',
+      'Transcribe ALL intelligible speech in this audio file, verbatim and in chronological order, then follow the language rule below.',
       '',
       'Rules:',
       '- "start" and "end" are seconds measured from the FIRST SAMPLE of this audio file. The file is exactly ' + opts.duration.toFixed(2) + ' seconds long.',
@@ -918,6 +949,9 @@ var Gemini = (function () {
     testAudio: testAudio,
     cancel: cancel,
     thinkingPlans: thinkingPlans,
-    parseCues: parseCues
+    parseCues: parseCues,
+    /* Test hooks; not used by the panel. */
+    _languageRule: languageRule,
+    _buildPrompt: buildPrompt
   };
 })();

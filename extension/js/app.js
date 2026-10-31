@@ -491,11 +491,21 @@
 
       log('Sending ' + chunkCount + ' slice(s) of ~' + chunkSec + 's to ' + settings.model +
           ' · ' + workerCount + ' in parallel.', 'dim');
+      if (settings.language === 'auto') {
+        log('Caption language: spoken language (auto-detect).', 'dim');
+      } else if (settings.language === 'Hinglish') {
+        log('Caption language: Hinglish (Roman script).', 'dim');
+      } else {
+        log('Caption language: ' + settings.language +
+            ' (speech in another language is translated).', 'dim');
+      }
 
       if (/transcribe/i.test(settings.model)) {
         log('  ' + settings.model + ' returns a timestamp for every word, so pauses stay gaps.', 'dim');
         if (settings.language !== 'auto') {
-          log('  It picks the language and script itself; Language is a hint only.', 'dim');
+          log(settings.language === 'Hinglish'
+            ? '  Its spoken-language output is rewritten in Roman Hinglish afterwards.'
+            : '  Its spoken-language output is translated to ' + settings.language + ' afterwards.', 'dim');
         }
       }
 
@@ -678,24 +688,65 @@
 
       if (token.cancelled) throw cancelledError();
 
+      /* Slices finish in parallel, so `collected` is in completion order rather
+         than time order. Both rewrites below read neighbouring lines as context,
+         so hand them a chronological copy and write results back to the same
+         cue objects (timings are untouched). */
+      var orderedCues = collected.slice().sort(function (a, b) {
+        return a.start - b.start || a.end - b.end;
+      });
+
       /* Dedicated transcribe models answer in Devanagari whatever the language
          setting says. When the user asked for Hinglish, rewrite those lines in
          Roman letters before they become captions. */
       if (settings.language === 'Hinglish' &&
-          collected.some(function (c) { return Roman.hasDevanagari(c.text); })) {
+          orderedCues.some(function (c) { return Roman.hasDevanagari(c.text); })) {
         progress(94, 'converting to Roman Hinglish…');
-        var roman = await Roman.convert(collected.map(function (c) { return c.text; }), {
+        var roman = await Roman.convert(orderedCues.map(function (c) { return c.text; }), {
           apiKey: settings.apiKey,
           model: Roman.pickModel(settings.model),
           token: token
         });
-        for (var rc = 0; rc < collected.length; rc++) collected[rc].text = roman.lines[rc];
+        for (var rc = 0; rc < orderedCues.length; rc++) orderedCues[rc].text = roman.lines[rc];
         if (roman.error) {
           log('! Roman conversion fell back to the built-in transliterator: ' + roman.error, 'warn');
         } else if (roman.model) {
-          log('Rewrote ' + collected.length + ' cue(s) in Roman Hinglish via ' + roman.model + '.', 'dim');
+          log('Rewrote ' + orderedCues.length + ' cue(s) in Roman Hinglish via ' + roman.model + '.', 'dim');
         }
         if (token.cancelled) throw cancelledError();
+      }
+
+      /* The selected language is the caption language, not a guess about the
+         audio. Dedicated *-transcribe models always answer in the spoken
+         language, and a general model can ignore the translate instruction
+         when the scripts differ. Rewrite those cues before they are split into
+         caption lines; their timings do not change. */
+      if (settings.language !== 'auto' && settings.language !== 'Hinglish') {
+        var captionTexts = orderedCues.map(function (c) { return c.text; });
+        var canTranslate = typeof Translate !== 'undefined' && Translate.ok;
+        var mustTranslate = /transcribe/i.test(settings.model) ||
+          (canTranslate && Translate.needsFix(settings.language, captionTexts));
+
+        if (mustTranslate && !canTranslate) {
+          log('! Translation to ' + settings.language + ' is unavailable (' +
+              ((typeof Translate !== 'undefined' && Translate.error) || 'module not loaded') + ').', 'err');
+        } else if (mustTranslate) {
+          progress(95, 'translating to ' + settings.language + '…');
+          log('Translating ' + captionTexts.length + ' cue(s) to ' + settings.language + '…', 'dim');
+          var translated = await Translate.convert(settings.language, captionTexts, {
+            apiKey: settings.apiKey,
+            model: Translate.pickModel(settings.model),
+            token: token
+          });
+          if (token.cancelled) throw cancelledError();
+          if (translated.error) {
+            log('! Could not translate to ' + settings.language + ': ' + translated.error, 'err');
+            log('  The captions are still in the spoken language. Try again, or pick a general model.', 'warn');
+          } else {
+            for (var tc = 0; tc < orderedCues.length; tc++) orderedCues[tc].text = translated.lines[tc];
+            log('Translated to ' + settings.language + ' with ' + translated.model + '.', 'dim');
+          }
+        }
       }
 
       progress(97, 'building subtitles…');

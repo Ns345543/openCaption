@@ -520,11 +520,11 @@ var Updater = (function () {
     var required = [
       'index.html',
       'js/app.js',
+      'js/translate.js',
       'jsx/host.jsx',
       'CSXS/manifest.xml',
       'tools/ffmpeg/ffmpeg.exe'
-    ];
-    for (var i = 0; i < required.length; i++) {
+    ];    for (var i = 0; i < required.length; i++) {
       try {
         if (!fs.existsSync(path.join(root, required[i]))) return false;
       } catch (e) {

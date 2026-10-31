@@ -17,7 +17,7 @@
   var activeRun = null;
   var cs = new CSInterface();
 
-  var VERSION = '1.3.0';
+  var VERSION = '1.4.0';
 
   function $(id) { return document.getElementById(id); }
 
@@ -50,19 +50,43 @@
     return requested === 'auto' ? text + ' — auto' : text;
   }
 
+  function syncLogClear() {
+    if (els.clearLogBtn) els.clearLogBtn.disabled = els.log.textContent.trim() === '';
+  }
+
   function log(msg, cls) {
     var line = document.createElement('div');
     if (cls) line.className = 'l-' + cls;
     line.textContent = msg;
     els.log.appendChild(line);
     els.log.scrollTop = els.log.scrollHeight;
+    syncLogClear();
   }
 
-  function clearLog() { els.log.innerHTML = ''; }
+  function clearLog() {
+    els.log.innerHTML = '';
+    syncLogClear();
+  }
+
+  var progressCloseTimer = 0;
 
   function progress(pct, label) {
-    els.bar.style.width = clamp(pct, 0, 100) + '%';
+    var p = clamp(pct, 0, 100);
+    els.bar.style.width = p + '%';
+    els.progressTrack.classList.toggle('done', p >= 100);
     if (label !== undefined) els.progressLabel.textContent = label;
+  }
+
+  function resetProgress() {
+    clearTimeout(progressCloseTimer);
+    els.progressTrack.classList.remove('closed', 'done');
+  }
+
+  function closeProgress(delay) {
+    clearTimeout(progressCloseTimer);
+    progressCloseTimer = setTimeout(function () {
+      els.progressTrack.classList.add('closed');
+    }, delay);
   }
 
   /* ------------------------------------------------------------ settings */
@@ -347,6 +371,7 @@
     els.cancel.textContent = 'Stop';
 
     clearLog();
+    resetProgress();
     progress(0, 'starting…');
 
     var startedAt = Date.now();
@@ -664,6 +689,8 @@
       els.cancel.classList.add('hidden');
       els.cancel.disabled = false;
       els.cancel.textContent = 'Stop';
+      // Let the 100% state read for a moment, then close the strip.
+      closeProgress(900);
     }
   }
 
@@ -696,9 +723,158 @@
     return false;
   }
 
+  /* -------------------------------------------------------- custom theme */
+
+  var themeEditorOpen = false;
+
+  function themeColorInputs() {
+    return [
+      { picker: els.customBg, hex: els.customBgHex },
+      { picker: els.customPanel, hex: els.customPanelHex },
+      { picker: els.customAccent, hex: els.customAccentHex },
+      { picker: els.customText, hex: els.customTextHex }
+    ];
+  }
+
+  function readThemeColors() {
+    var pairs = themeColorInputs();
+    var keys = ['bg', 'panel', 'accent', 'text'];
+    var colors = {};
+    for (var i = 0; i < pairs.length; i++) {
+      var value = Theme.parseHex(pairs[i].hex.value);
+      if (!value) return null;
+      colors[keys[i]] = value;
+    }
+    return colors;
+  }
+
+  function updateThemePreview() {
+    var colors = readThemeColors();
+    if (!colors) return;
+    var vars = Theme.derive(colors);
+    els.tpBg.style.background = colors.bg;
+    els.tpCard.style.background = colors.panel;
+    els.tpCard.style.borderColor = vars['--line-strong'];
+    els.tpText.style.color = colors.text;
+    els.tpMuted.style.color = vars['--muted'];
+    els.tpAccent.style.background = colors.accent;
+    els.tpAccent.style.color = vars['--on-accent'];
+  }
+
+  function bindThemeEditor() {
+    themeColorInputs().forEach(function (pair) {
+      pair.picker.addEventListener('input', function () {
+        pair.hex.value = pair.picker.value;
+        updateThemePreview();
+      });
+      pair.hex.addEventListener('input', function () {
+        var value = Theme.parseHex(pair.hex.value);
+        if (!value) return;
+        pair.picker.value = value;
+        updateThemePreview();
+      });
+      pair.hex.addEventListener('blur', function () {
+        var value = Theme.parseHex(pair.hex.value);
+        pair.hex.value = value || pair.picker.value;
+      });
+    });
+  }
+
+  function openThemeEditor() {
+    var saved = Theme.getCustom();
+    var colors = saved;
+    if (!colors) {
+      // Start from the palette on screen so "custom" is a nudge, not a blank canvas.
+      var style = getComputedStyle(document.documentElement);
+      colors = {
+        bg: Theme.parseHex(style.getPropertyValue('--bg')) || '#0b0b0b',
+        panel: Theme.parseHex(style.getPropertyValue('--panel')) || '#161616',
+        accent: Theme.parseHex(style.getPropertyValue('--accent')) || '#ffffff',
+        text: Theme.parseHex(style.getPropertyValue('--text')) || '#f2f2f2'
+      };
+    }
+
+    els.customThemeName.value = saved ? saved.name : '';
+    var values = [colors.bg, colors.panel, colors.accent, colors.text];
+    themeColorInputs().forEach(function (pair, i) {
+      pair.picker.value = values[i];
+      pair.hex.value = values[i];
+    });
+    els.customThemeDelete.disabled = !saved;
+
+    updateThemePreview();
+    els.themeEditor.classList.remove('hidden');
+    els.customThemeBtn.classList.add('active');
+    themeEditorOpen = true;
+    els.themeEditor.scrollIntoView({ block: 'nearest' });
+  }
+
+  function closeThemeEditor() {
+    els.themeEditor.classList.add('hidden');
+    els.customThemeBtn.classList.remove('active');
+    themeEditorOpen = false;
+  }
+
+  function saveCustomTheme() {
+    var colors = readThemeColors();
+    if (!colors) {
+      log('! Theme colours must be #rrggbb hex values.', 'warn');
+      return;
+    }
+    colors.name = els.customThemeName.value;
+    var saved = Theme.setCustom(colors);
+    Theme.apply('custom');
+    settings.customTheme = saved;
+    settings.theme = 'custom';
+    persist();
+    closeThemeEditor();
+    log('Custom theme "' + saved.name + '" applied.', 'dim');
+  }
+
+  function deleteCustomTheme() {
+    if (!Theme.getCustom()) {
+      log('No custom theme to delete.', 'dim');
+      return;
+    }
+    if (!window.confirm('Delete the saved custom theme?')) return;
+    var active = Theme.current();
+    Theme.setCustom(null);
+    // Only leave the palette if it was the one being deleted.
+    Theme.apply(active === 'custom' ? 'mono' : active);
+    settings.customTheme = null;
+    settings.theme = Theme.current();
+    persist();
+    closeThemeEditor();
+    log('Custom theme deleted.', 'dim');
+  }
+
   /* ----------------------------------------------------------------- boot */
 
   function bind() {
+    function toggleApiCard() {
+      var collapsed = els.apiCard.classList.toggle('collapsed');
+      els.apiHead.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      els.apiHead.title = collapsed ? 'Expand API access' : 'Collapse API access';
+    }
+
+    els.apiHead.addEventListener('click', toggleApiCard);
+    els.apiHead.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggleApiCard();
+      }
+    });
+
+    els.customThemeBtn.addEventListener('click', function () {
+      if (themeEditorOpen) closeThemeEditor();
+      else openThemeEditor();
+    });
+    els.themeEditorClose.addEventListener('click', closeThemeEditor);
+    els.customThemeCancel.addEventListener('click', closeThemeEditor);
+    els.customThemeSave.addEventListener('click', saveCustomTheme);
+    els.customThemeDelete.addEventListener('click', deleteCustomTheme);
+    bindThemeEditor();
+
     document.querySelectorAll('#scope button').forEach(function (btn) {
       btn.addEventListener('click', function () {
         document.querySelectorAll('#scope button').forEach(function (b) { b.classList.remove('active'); });
@@ -745,11 +921,18 @@
 
     els.generate.addEventListener('click', generate);
     els.cancel.addEventListener('click', requestCancel);
+    els.clearLogBtn.addEventListener('click', clearLog);
 
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && running) {
+      if (e.key !== 'Escape') return;
+      if (running) {
         e.preventDefault();
         requestCancel();
+        return;
+      }
+      if (themeEditorOpen) {
+        e.preventDefault();
+        closeThemeEditor();
       }
     });
 
@@ -766,12 +949,17 @@
   }
 
   function boot() {
-    ['apiKey', 'toggleKey', 'saveKey', 'testKey', 'clearKey', 'keyBadge', 'model', 'customModel',
+    ['apiCard', 'apiHead', 'apiKey', 'toggleKey', 'saveKey', 'testKey', 'clearKey', 'keyBadge', 'model', 'customModel',
      'customModelWrap', 'language', 'scope', 'wordsPerLine', 'maxLines', 'captionShape',
      'snapPauses', 'autoImport',
-     'generate', 'cancel', 'bar', 'progressLabel', 'log', 'ffmpegPath', 'browseFfmpeg', 'chunkSec',
+     'generate', 'cancel', 'bar', 'progressTrack', 'progressLabel', 'log', 'clearLogBtn', 'ffmpegPath', 'browseFfmpeg', 'chunkSec',
      'concurrency', 'silenceDb', 'openDataFolder', 'openCaptionFolder', 'version', 'hostInfo',
-     'refreshModels', 'testModel', 'themes', 'themeName']
+     'refreshModels', 'testModel', 'themes', 'themeName',
+     'customThemeBtn', 'themeEditor', 'themeEditorClose', 'customThemeName',
+     'customBg', 'customBgHex', 'customPanel', 'customPanelHex',
+     'customAccent', 'customAccentHex', 'customText', 'customTextHex',
+     'customThemeSave', 'customThemeDelete', 'customThemeCancel',
+     'tpBg', 'tpCard', 'tpText', 'tpMuted', 'tpAccent']
       .forEach(function (id) { els[id] = $(id); });
 
     els.version.textContent = 'openCaption v' + VERSION;
@@ -783,6 +971,8 @@
     }
 
     settings = Config.load();
+    // config.json is the source of truth; localStorage is only the pre-paint hint.
+    Theme.setCustom(settings.customTheme || null);
     settings.theme = Theme.apply(settings.theme);
     applyToForm();
     Theme.mount(els.themes, function (id) {

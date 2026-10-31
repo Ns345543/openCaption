@@ -21,12 +21,18 @@ timeline ──► clip list (ExtendScript)          paths + in/out points + pos
 
 ## Interface
 
-Hard 90° edges throughout, no rounded corners, and five palettes you can switch
+Hard 90° edges throughout, no rounded corners, and six palettes you can switch
 from the theme rail above the cards. The choice is saved with your other settings.
+Press **+** on the rail to build your own palette: pick a background, panel,
+accent and text colour, watch the live preview, then save it as an extra swatch.
+Secondary shades, borders and status colours are derived from those four inputs
+so every control stays readable. A saved custom theme is stored in
+`%APPDATA%\CaptionAI\config.json` too, and can be deleted from the same editor.
 
 | Theme | Look |
 |---|---|
 | Mono | black & white (default) |
+| Premiere | black workspace (#1d1d1d) with Premiere's sky blue (#005cc8) |
 | Void | violet and cyan on near-black |
 | Ember | amber on charcoal |
 | Matrix | phosphor green |
@@ -50,7 +56,7 @@ Two supported routes, both free and per-user (no admin rights):
 
 **A. Windows installer (simplest)**
 
-1. Download `openCaption-1.3.0-windows.zip` and extract it.
+1. Download `openCaption-1.4.0-windows.zip` and extract it.
 2. Close Premiere Pro.
 3. Run `install.bat`.
 
@@ -61,7 +67,7 @@ the saved API key.
 
 **B. ZXP (any CEP extension manager)**
 
-Install `openCaption-1.3.0.zxp` with Anastasiy's Extension Manager, ZXPInstaller or
+Install `openCaption-1.4.0.zxp` with Anastasiy's Extension Manager, ZXPInstaller or
 Adobe `ExManCmd`. This is a **CEP** panel — a UXP-only installer will report
 `manifest.json not found`; use a CEP one instead. The .zxp is signed with a
 self-signed certificate, which CEP loads only when `PlayerDebugMode` is on, so if

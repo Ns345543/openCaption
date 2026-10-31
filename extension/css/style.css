@@ -1,6 +1,6 @@
 /* ============================================================
    openCaption — panel UI
-   Hard-edged HUD styling, five palettes, 430px CEP panel.
+   Hard-edged HUD styling, six palettes, 430px CEP panel.
    Every element is square: no rounded corners anywhere.
    ============================================================ */
 
@@ -34,6 +34,55 @@
   --scroll: rgba(255, 255, 255, 0.22);
   --glow: rgba(255, 255, 255, 0.22);
 }
+
+/* Premiere Pro: black workspace (#1d1d1d) with its sky-blue highlight (#005cc8). */
+html[data-theme="premiere"] {
+  color-scheme: dark;
+  --bg: #1d1d1d;
+  --bg-soft: #181818;
+  --panel: #232323;
+  --panel-2: #292929;
+  --fill: #2f2f2f;
+  --fill-2: #3a3a3a;
+  --input-bg: #171717;
+  --log-bg: #141414;
+  --line: rgba(255, 255, 255, 0.10);
+  --line-strong: rgba(255, 255, 255, 0.26);
+  --text: #f4f4f4;
+  --muted: #b3b3b3;
+  --muted-2: #8a8a8a;
+  --placeholder: #666666;
+  --accent: #005cc8;
+  --accent-2: #4c9fff;
+  --on-accent: #ffffff;
+  --ok: #4ade80;
+  --warn: #fbbf24;
+  --err: #f87171;
+  --shadow: rgba(0, 0, 0, 0.85);
+  --grid: rgba(255, 255, 255, 0.045);
+  --beam: rgba(0, 92, 200, 0.20);
+  --scroll: rgba(255, 255, 255, 0.22);
+  --glow: rgba(0, 92, 200, 0.45);
+}
+
+/* #005cc8 is a fill colour; lift accent *text* to a legible tint of it so
+   labels like TEST / REFRESH and the theme name stay readable on #1d1d1d. */
+html[data-theme="premiere"] .brand-name .accent,
+html[data-theme="premiere"] .theme-name,
+html[data-theme="premiere"] .theme-add:hover,
+html[data-theme="premiere"] .theme-add.active,
+html[data-theme="premiere"] .num,
+html[data-theme="premiere"] .api-card .card-head .chev,
+html[data-theme="premiere"] .ghost-btn:hover,
+html[data-theme="premiere"] .linkbtn,
+html[data-theme="premiere"] .btn:hover,
+html[data-theme="premiere"] .hint a,
+html[data-theme="premiere"] .log-clear,
+html[data-theme="premiere"] .adv .chev {
+  color: var(--accent-2);
+}
+
+html[data-theme="premiere"] .num { border-color: var(--accent-2); }
 
 html[data-theme="void"] {
   color-scheme: dark;
@@ -329,7 +378,17 @@ button, input, select, summary { font-family: inherit; }
   white-space: nowrap;
 }
 
-.themes { display: flex; align-items: center; gap: 5px; flex: 1 1 auto; }
+.themes {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.themes::-webkit-scrollbar { display: none; }
 
 .theme-swatch {
   position: relative;
@@ -339,6 +398,7 @@ button, input, select, summary { font-family: inherit; }
   border: 1px solid var(--line-strong);
   background: var(--sw-bg, #000);
   cursor: pointer;
+  flex: 0 0 auto;
   transition: transform .12s, border-color .15s, box-shadow .15s;
 }
 
@@ -370,6 +430,33 @@ button, input, select, summary { font-family: inherit; }
   white-space: nowrap;
   transition: color .22s;
 }
+
+.theme-add {
+  width: 24px;
+  height: 16px;
+  padding: 0;
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+  color: var(--muted-2);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition: color .15s, border-color .15s, background-color .15s;
+}
+
+.theme-add:hover,
+.theme-add.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--fill);
+}
+
+.theme-swatch-custom { border-style: dashed; }
 
 /* ---------- layout ---------- */
 
@@ -481,6 +568,129 @@ button, input, select, summary { font-family: inherit; }
   color: var(--on-accent);
   background: var(--err);
   border-color: var(--err);
+}
+
+/* 01 folds away so the key fields only take space when needed */
+.api-card .card-head { cursor: pointer; user-select: none; }
+.api-card .card-head:hover h2 { color: var(--text); }
+
+.api-card .card-head .chev {
+  color: var(--accent);
+  font-size: 13px;
+  line-height: 1;
+  flex: 0 0 auto;
+  transition: transform .18s;
+}
+
+.api-card:not(.collapsed) .card-head .chev { transform: rotate(90deg); }
+
+.api-card.collapsed .card-head {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom-color: transparent;
+}
+
+.api-card.collapsed .api-body { display: none; }
+
+/* ---------- custom theme editor ---------- */
+
+.theme-editor .card-head .linkbtn { flex: 0 0 auto; }
+
+.color-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+  margin-bottom: 11px;
+}
+
+.color-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+
+.color-field > span {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  color: var(--muted-2);
+  font-size: 8.5px;
+  letter-spacing: 1.3px;
+  text-transform: uppercase;
+}
+
+.color-row { display: flex; gap: 6px; align-items: stretch; }
+
+.color-row input[type="color"] {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: var(--input-bg);
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition: border-color .15s;
+}
+
+.color-row input[type="color"]:hover { border-color: var(--line-strong); }
+
+.color-row input[type="color"]::-webkit-color-swatch-wrapper { padding: 3px; }
+.color-row input[type="color"]::-webkit-color-swatch { border: none; }
+
+.color-row .hex {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  padding: 6px 8px;
+  font-size: 11px;
+  text-transform: lowercase;
+}
+
+.theme-preview {
+  border: 1px solid var(--line);
+  background: var(--input-bg);
+  padding: 7px;
+  margin-bottom: 11px;
+}
+
+.tp-canvas {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 68px;
+  padding: 10px;
+  background: #0b0b0b;
+}
+
+.tp-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  width: 100%;
+  max-width: 210px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: #161616;
+}
+
+.tp-title {
+  font-family: "Bahnschrift", "Segoe UI", sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+}
+
+.tp-sub {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 7.5px;
+  letter-spacing: 1.3px;
+  text-transform: uppercase;
+}
+
+.tp-cta {
+  margin-top: 4px;
+  padding: 3px 8px;
+  font-family: "Bahnschrift", "Segoe UI", sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
 }
 
 /* ---------- inputs ---------- */
@@ -798,7 +1008,7 @@ select {
   background: var(--input-bg);
   border: 1px solid var(--line);
   overflow: hidden;
-  transition: border-color .22s;
+  transition: height .2s ease, border-width .2s ease, border-color .22s, opacity .18s;
 }
 
 .progress .bar {
@@ -815,6 +1025,17 @@ select {
 
 @keyframes slide { to { background-position: 17px 0; } }
 
+/* Finished: freeze the stripes, then collapse the strip. The status label
+   below stays, so "done — 7 cues in 7.4s" is still readable. */
+.progress.done .bar { animation: none; background: var(--accent); }
+
+.progress.closed {
+  height: 0;
+  border-top-width: 0;
+  border-bottom-width: 0;
+  opacity: 0;
+}
+
 .progress-label {
   margin-top: 6px;
   font-family: "Cascadia Mono", Consolas, monospace;
@@ -825,6 +1046,49 @@ select {
 }
 
 /* ---------- log ---------- */
+
+.log-wrap { margin-bottom: 12px; }
+
+.log-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 9px;
+  background: var(--log-bg);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--accent);
+  border-bottom: 0;
+  transition: background-color .22s, border-color .22s;
+}
+
+.log-head > span {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 8px;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+
+.log-clear {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 8px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  opacity: 0.8;
+  transition: opacity .15s, color .15s;
+}
+
+.log-clear:hover { opacity: 1; color: var(--text); }
+.log-clear:disabled { opacity: 0.3; cursor: default; }
+.log-clear:disabled:hover { color: var(--accent); }
+
+.log-wrap .log { margin-bottom: 0; border-top: 0; }
 
 .log {
   background: var(--log-bg);
@@ -926,7 +1190,8 @@ select {
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
-summary:focus-visible {
+summary:focus-visible,
+.api-card .card-head:focus-visible {
   outline: 1px solid var(--accent);
   outline-offset: 2px;
 }

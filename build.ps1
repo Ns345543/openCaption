@@ -262,7 +262,8 @@ foreach ($file in @($zxpPath, $zipPath)) {
     $lines += ('{0}  {1}' -f $hash, (Split-Path -Leaf $file))
 }
 $sumPath = Join-Path $Dist 'SHA256SUMS.txt'
-[System.IO.File]::WriteAllLines($sumPath, $lines, (New-Object System.Text.UTF8Encoding($false)))
+# LF line endings so `sha256sum -c` works, not just Windows tools.
+[System.IO.File]::WriteAllText($sumPath, (($lines -join "`n") + "`n"), (New-Object System.Text.UTF8Encoding($false)))
 $lines | ForEach-Object { Note $_ }
 
 Write-Host ''

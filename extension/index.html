@@ -26,36 +26,106 @@
   <nav class="themebar" aria-label="Theme">
     <span class="themebar-label">Theme</span>
     <div class="themes" id="themes"></div>
+    <button class="theme-add" id="customThemeBtn" type="button"
+            title="Create a custom theme" aria-label="Create a custom theme">+</button>
     <span class="theme-name" id="themeName">mono</span>
   </nav>
 
   <main class="scroll">
 
-    <!-- ================= 01 · key ================= -->
-    <section class="card">
+    <!-- ================= custom theme editor ================= -->
+    <section class="card theme-editor hidden" id="themeEditor" aria-label="Custom theme">
       <div class="card-head">
-        <span class="num">01</span>
-        <h2>API access</h2>
-        <span class="badge" id="keyBadge">no key</span>
+        <span class="num">+</span>
+        <h2>Custom theme</h2>
+        <button class="linkbtn" id="themeEditorClose" type="button" title="Close the editor">close</button>
       </div>
 
-      <div class="row">
-        <div class="input-wrap">
-          <input id="apiKey" type="password" placeholder="AIza…" spellcheck="false" autocomplete="off" />
-          <button id="toggleKey" class="ghost-btn" title="Show / hide">show</button>
+      <label class="field">
+        <span>Name</span>
+        <input id="customThemeName" maxlength="18" placeholder="My theme" spellcheck="false" />
+      </label>
+
+      <div class="color-grid">
+        <label class="color-field">
+          <span>Background</span>
+          <span class="color-row">
+            <input type="color" id="customBg" value="#0b0b0b" aria-label="Background colour" />
+            <input class="hex" id="customBgHex" value="#0b0b0b" maxlength="7" spellcheck="false" />
+          </span>
+        </label>
+
+        <label class="color-field">
+          <span>Panel</span>
+          <span class="color-row">
+            <input type="color" id="customPanel" value="#161616" aria-label="Panel colour" />
+            <input class="hex" id="customPanelHex" value="#161616" maxlength="7" spellcheck="false" />
+          </span>
+        </label>
+
+        <label class="color-field">
+          <span>Accent</span>
+          <span class="color-row">
+            <input type="color" id="customAccent" value="#ffffff" aria-label="Accent colour" />
+            <input class="hex" id="customAccentHex" value="#ffffff" maxlength="7" spellcheck="false" />
+          </span>
+        </label>
+
+        <label class="color-field">
+          <span>Text</span>
+          <span class="color-row">
+            <input type="color" id="customText" value="#f2f2f2" aria-label="Text colour" />
+            <input class="hex" id="customTextHex" value="#f2f2f2" maxlength="7" spellcheck="false" />
+          </span>
+        </label>
+      </div>
+
+      <div class="theme-preview" aria-hidden="true">
+        <div class="tp-canvas" id="tpBg">
+          <div class="tp-card" id="tpCard">
+            <span class="tp-title" id="tpText">openCaption</span>
+            <span class="tp-sub" id="tpMuted">hinglish · roman</span>
+            <span class="tp-cta" id="tpAccent">generate</span>
+          </div>
         </div>
       </div>
 
       <div class="row wrap">
-        <button id="saveKey" class="btn primary sm">Save key</button>
-        <button id="testKey" class="btn sm">Verify</button>
-        <button id="clearKey" class="btn sm ghost">Clear</button>
+        <button class="btn primary sm" id="customThemeSave" type="button">Save &amp; apply</button>
+        <button class="btn sm ghost" id="customThemeDelete" type="button">Delete</button>
+        <button class="btn sm ghost" id="customThemeCancel" type="button">Cancel</button>
+      </div>
+    </section>
+
+    <!-- ================= 01 · key ================= -->
+    <section class="card api-card" id="apiCard">
+      <div class="card-head" id="apiHead" role="button" tabindex="0"
+           aria-expanded="true" aria-controls="apiBody" title="Collapse API access">
+        <span class="num">01</span>
+        <h2>API access</h2>
+        <span class="badge" id="keyBadge">no key</span>
+        <span class="chev" aria-hidden="true">›</span>
       </div>
 
-      <p class="hint">
-        Key from <a href="https://aistudio.google.com/apikey" data-ext="link">aistudio.google.com/apikey</a>
-        · stored locally in <code>%APPDATA%\CaptionAI</code>
-      </p>
+      <div class="api-body" id="apiBody">
+        <div class="row">
+          <div class="input-wrap">
+            <input id="apiKey" type="password" placeholder="AIza…" spellcheck="false" autocomplete="off" />
+            <button id="toggleKey" class="ghost-btn" title="Show / hide">show</button>
+          </div>
+        </div>
+
+        <div class="row wrap">
+          <button id="saveKey" class="btn primary sm">Save key</button>
+          <button id="testKey" class="btn sm">Verify</button>
+          <button id="clearKey" class="btn sm ghost">Clear</button>
+        </div>
+
+        <p class="hint">
+          Key from <a href="https://aistudio.google.com/apikey" data-ext="link">aistudio.google.com/apikey</a>
+          · stored locally in <code>%APPDATA%\CaptionAI</code>
+        </p>
+      </div>
     </section>
 
     <!-- ================= 02 · transcription ================= -->
@@ -167,11 +237,17 @@
     </div>
 
     <div class="progress-wrap">
-      <div class="progress"><div class="bar" id="bar"></div></div>
+      <div class="progress" id="progressTrack"><div class="bar" id="bar"></div></div>
       <div class="progress-label" id="progressLabel">idle</div>
     </div>
 
-    <div class="log" id="log"></div>
+    <div class="log-wrap">
+      <div class="log-head">
+        <span>Log</span>
+        <button class="log-clear" id="clearLogBtn" type="button" title="Clear the log">clear</button>
+      </div>
+      <div class="log" id="log"></div>
+    </div>
 
     <!-- ================= advanced ================= -->
     <details class="card adv">

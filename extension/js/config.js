@@ -44,7 +44,8 @@ var Config = (function () {
     chunkSec: 30,
     concurrency: 3,
     silenceDb: -35,
-    theme: 'mono'
+    theme: 'mono',
+    customTheme: null
   };
 
   function ensureDirs() {

@@ -1,7 +1,7 @@
 openCaption — third-party notices
 ================================
 
-This extension ships one third-party program.
+This extension ships one third-party program and one small compatibility script.
 
 FFmpeg (ffmpeg.exe)
 -------------------
@@ -27,3 +27,15 @@ rather not redistribute FFmpeg, ship the panel without tools/ffmpeg and let
 users point it at their own ffmpeg.exe under Advanced.
 
 A copy of the GPL v3 is at https://www.gnu.org/licenses/gpl-3.0.txt
+
+
+json2.js
+--------
+Bundled as jsx/json2.js so ExtendScript has JSON.stringify/JSON.parse on
+Premiere builds whose ES3 engine does not provide them.
+
+  Project      : https://github.com/douglascrockford/JSON-js
+  License      : Public Domain (dedicated by Douglas Crockford)
+  Version      : 2023-05-10
+
+json2.js is included unmodified apart from a short header comment.

@@ -169,6 +169,25 @@ if ($appVersion -ne $manifestVersion) {
 $version = $manifestVersion
 Ok "openCaption $version"
 
+# --------------------------------------------------------------- ffmpeg ---
+Step 'Audio helper'
+$sourceFfmpeg = Join-Path $ExtDir 'tools\ffmpeg\ffmpeg.exe'
+if (-not (Test-Path -LiteralPath $sourceFfmpeg)) {
+    $setup = Join-Path $Root 'setup-ffmpeg.ps1'
+    if (-not (Test-Path -LiteralPath $setup)) {
+        throw "ffmpeg.exe is missing from extension\tools\ffmpeg and setup-ffmpeg.ps1 was not found."
+    }
+    Warn 'ffmpeg.exe is missing; downloading it before staging (setup-ffmpeg.ps1).'
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $setup
+    if ($LASTEXITCODE -ne 0) {
+        throw 'setup-ffmpeg.ps1 could not download ffmpeg. Run it yourself, then build again.'
+    }
+}
+if (-not (Test-Path -LiteralPath $sourceFfmpeg)) {
+    throw "ffmpeg.exe is still missing from $sourceFfmpeg. The package would not work without it."
+}
+Ok ("ffmpeg bundled ({0:N0} MB)" -f ((Get-Item -LiteralPath $sourceFfmpeg).Length / 1MB))
+
 # -------------------------------------------------------------------- stage ---
 Step 'Staging files'
 if (Test-Path -LiteralPath $Stage) { Remove-Item -LiteralPath $Stage -Recurse -Force }

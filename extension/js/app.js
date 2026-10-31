@@ -17,7 +17,7 @@
   var activeRun = null;
   var cs = new CSInterface();
 
-  var VERSION = '1.4.0';
+  var VERSION = '1.4.1';
 
   function $(id) { return document.getElementById(id); }
 
@@ -698,14 +698,27 @@
 
   function openFolder(dir) {
     try {
-      NODE.child_process.spawn('explorer.exe', [dir], { detached: true, stdio: 'ignore' }).unref();
+      var platform = (NODE.process && NODE.process.platform) || 'win32';
+      var command = platform === 'win32' ? 'explorer.exe'
+                  : platform === 'darwin' ? 'open'
+                  : 'xdg-open';
+      NODE.child_process.spawn(command, [dir], { detached: true, stdio: 'ignore' }).unref();
     } catch (e) {
       log('! Could not open folder: ' + e.message, 'warn');
     }
   }
 
   function browseFfmpeg() {
-    var picked = cs.showOpenDialog('Locate ffmpeg.exe', 'C:\\', ['exe']);
+    // Start where ffmpeg is likely to be on this machine, never at a path
+    // copied from another install or another user's profile.
+    var start = '';
+    try {
+      start = settings.ffmpegPath ? NODE.path.dirname(settings.ffmpegPath) : '';
+    } catch (e1) { start = ''; }
+    if (!start) {
+      try { start = NODE.os.homedir(); } catch (e2) { start = ''; }
+    }
+    var picked = cs.showOpenDialog('Locate ffmpeg.exe', start, ['exe']);
     if (!picked) return;
     els.ffmpegPath.value = picked;
     persist();

@@ -33,8 +33,16 @@ var Premiere = (function () {
     var root = extensionRoot();
     if (!root) return Promise.resolve(false);
 
-    var target = root.replace(/\\/g, '/');
-    var script = '$.evalFile("' + target + '/jsx/host.jsx"); "host-ok"';
+    var target = root.replace(/\\/g, '/').replace(/\/+$/, '');
+    // Load the ExtendScript JSON polyfill from the same known extension root
+    // first. host.jsx also loads it itself, but this covers builds where
+    // $.fileName is not the script path. Both loads are idempotent.
+    var jsonPath = target + '/jsx/json2.js';
+    var hostPath = target + '/jsx/host.jsx';
+    // JSON.stringify escapes spaces/quotes/Unicode correctly for evalScript;
+    // building the expression by hand broke on some install paths.
+    var script = '$.evalFile(' + JSON.stringify(jsonPath) + '); ' +
+                 '$.evalFile(' + JSON.stringify(hostPath) + '); "host-ok"';
 
     return new Promise(function (resolve) {
       cs.evalScript(script, function (res) {

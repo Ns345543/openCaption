@@ -3,17 +3,82 @@
  *
  * Every public function returns a JSON string so the panel can parse it.
  * Kept to ES3 (no Array.map/filter/forEach) because ExtendScript is old.
+ *
+ * ExtendScript is also an ES3 engine: some Premiere builds have no JSON object
+ * at all. Load the bundled polyfill first so every reply can be serialised.
+ * $.fileName is this script's own path, whether CEP loaded it through
+ * ScriptPath or the panel evaluated it with $.evalFile().
  */
+(function loadJsonPolyfill() {
+  if (typeof JSON !== 'undefined' && JSON &&
+      typeof JSON.stringify === 'function' &&
+      typeof JSON.parse === 'function') {
+    return;
+  }
+
+  var candidates = [];
+  try {
+    if (typeof $ !== 'undefined' && $.fileName) {
+      var scriptFile = new File($.fileName);
+      if (scriptFile && scriptFile.parent) {
+        candidates.push(scriptFile.parent.fsName + '/json2.js');
+      }
+    }
+  } catch (e0) { /* no $.fileName: fall through to the check in j() */ }
+
+  for (var i = 0; i < candidates.length; i++) {
+    try {
+      var polyfill = new File(candidates[i]);
+      if (polyfill.exists) {
+        $.evalFile(polyfill);
+        if (typeof JSON !== 'undefined' && JSON &&
+            typeof JSON.stringify === 'function' &&
+            typeof JSON.parse === 'function') {
+          return;
+        }
+      }
+    } catch (e1) { /* try the next candidate */ }
+  }
+})();
+
 var CaptionAI = (function () {
 
   var TICKS_PER_SECOND = 254016000000;
   var CAPTION_BIN_NAME = '99 openCaption';
 
+  function jsonReady() {
+    // Responses only need stringify. parse is loaded too, but a host that
+    // already has a working stringify must not be rejected over it.
+    return (typeof JSON !== 'undefined') && JSON &&
+      (typeof JSON.stringify === 'function');
+  }
+
+  /* Used only if JSON.stringify itself throws, so the reply stays valid JSON. */
+  function quote(text) {
+    var s = String(text);
+    var out = '';
+    for (var i = 0; i < s.length; i++) {
+      var c = s.charAt(i);
+      var code = s.charCodeAt(i);
+      if (c === '"') out += '\\"';
+      else if (c === '\\') out += '\\\\';
+      else if (code < 32) out += '\\u' + ('0000' + code.toString(16)).slice(-4);
+      else out += c;
+    }
+    return '"' + out + '"';
+  }
+
   function j(obj) {
+    if (!jsonReady()) {
+      return '{"ok":false,"error":' +
+        quote('JSON.stringify is missing in ExtendScript and jsx/json2.js did not load. ' +
+              'Reinstall openCaption so the bundled polyfill is restored.') + '}';
+    }
     try {
       return JSON.stringify(obj);
     } catch (e) {
-      return '{"ok":false,"error":"Could not serialise response: ' + String(e) + '"}';
+      return '{"ok":false,"error":' +
+        quote('Could not serialise response: ' + e) + '}';
     }
   }
 

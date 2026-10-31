@@ -56,7 +56,7 @@ Two supported routes, both free and per-user (no admin rights):
 
 **A. Windows installer (simplest)**
 
-1. Download `openCaption-1.4.0-windows.zip` and extract it.
+1. Download `openCaption-1.4.1-windows.zip` and extract it.
 2. Close Premiere Pro.
 3. Run `install.bat`.
 
@@ -67,7 +67,7 @@ the saved API key.
 
 **B. ZXP (any CEP extension manager)**
 
-Install `openCaption-1.4.0.zxp` with Anastasiy's Extension Manager, ZXPInstaller or
+Install `openCaption-1.4.1.zxp` with Anastasiy's Extension Manager, ZXPInstaller or
 Adobe `ExManCmd`. This is a **CEP** panel — a UXP-only installer will report
 `manifest.json not found`; use a CEP one instead. The .zxp is signed with a
 self-signed certificate, which CEP loads only when `PlayerDebugMode` is on, so if
@@ -262,6 +262,12 @@ Run `setup-ffmpeg.ps1`, or point the panel at any `ffmpeg.exe` under Advanced.
 `host.jsx` didn't load. Restart Premiere. While debugging, load
 `http://localhost:7777` in Chrome and open DevTools for the panel.
 
+**"Could not serialise response: ReferenceError: JSON is undefined"**
+ExtendScript on that Premiere build has no native `JSON`. Current packages
+bundle `jsx/json2.js` and `host.jsx` loads it automatically. If the panel still
+reports this, `jsx/json2.js` was not copied: reinstall the extension and restart
+Premiere.
+
 **"No usable audio clips found"**
 The range's tracks are muted, the clips are offline, or the clips are nested
 sequences. Unmute A1/A2 and check the log for per-clip warnings.
@@ -300,6 +306,7 @@ extension/
   js/srt.js                word timing, cue clean-up, wrapping, SRT output
   js/app.js                pipeline + UI
   jsx/host.jsx             ExtendScript: clip scan, SRT import, caption track
+  jsx/json2.js             JSON polyfill for ExtendScript (loaded by host.jsx)
   tools/ffmpeg/            ffmpeg.exe lands here
 install.ps1                junction + debug mode (development)
 setup-ffmpeg.ps1           download ffmpeg

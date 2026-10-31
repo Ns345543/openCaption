@@ -57,7 +57,10 @@ var Audio = (function () {
   }
 
   function whereFfmpeg() {
-    var r = run('where', ['ffmpeg']);
+    // `where` is the Windows lookup command; other platforms use `which`.
+    var finder = (NODE.process && NODE.process.platform &&
+                  NODE.process.platform !== 'win32') ? 'which' : 'where';
+    var r = run(finder, ['ffmpeg']);
     if (r.status !== 0 || !r.stdout) return '';
     var lines = r.stdout.toString('utf8').split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean);
     for (var i = 0; i < lines.length; i++) {
@@ -70,7 +73,16 @@ var Audio = (function () {
   function extensionRoots() {
     var roots = [];
 
-    // 1. CEP's own answer.
+    // 1. Node knows where this script lives (extension/js). That is the
+    //    installation folder itself, so nothing here depends on the user name
+    //    or on where this copy of the panel happens to be installed.
+    try {
+      if (typeof __dirname === 'string' && __dirname) {
+        roots.push(path.resolve(__dirname, '..'));
+      }
+    } catch (e0) { /* ignore */ }
+
+    // 2. CEP's own answer.
     try {
       if (window.__adobe_cep__ && window.__adobe_cep__.getSystemPath) {
         var viaCep = window.__adobe_cep__.getSystemPath('extension');
@@ -78,13 +90,13 @@ var Audio = (function () {
       }
     } catch (e1) { /* ignore */ }
 
-    // 2. Our CSInterface shim.
+    // 3. Our CSInterface shim.
     try {
       var viaShim = new CSInterface().getSystemPath(SystemPath.EXTENSION);
       if (viaShim) roots.push(viaShim);
     } catch (e2) { /* ignore */ }
 
-    // 3. Where index.html was actually loaded from. Works even if CEP's path
+    // 4. Where index.html was actually loaded from. Works even if CEP's path
     //    API misbehaves, and it follows the junction to the real folder.
     try {
       var loc = window.location && window.location.pathname ? String(window.location.pathname) : '';
@@ -95,20 +107,27 @@ var Audio = (function () {
       }
     } catch (e3) { /* ignore */ }
 
-    // 4. Node's working directory, in case CEP launched us from the extension dir.
+    // 5. Node's working directory, in case CEP launched us from the extension dir.
     try {
       var cwd = NODE.process && NODE.process.cwd ? NODE.process.cwd() : '';
       if (cwd) roots.push(cwd);
     } catch (e4) { /* ignore */ }
 
-    // 5. The installed CEP location for this extension id.
+    // 6. The installed CEP location for this extension id. APPDATA is read
+    //    from the current process, never from a path baked into the package.
     try {
       roots.push(path.join(NODE.appData, 'Adobe', 'CEP', 'extensions', 'com.captionai.panel'));
     } catch (e5) { /* ignore */ }
 
     var unique = [];
     for (var i = 0; i < roots.length; i++) {
-      if (roots[i] && unique.indexOf(roots[i]) === -1) unique.push(roots[i]);
+      if (!roots[i]) continue;
+      var root = String(roots[i]).replace(/[\\\/]+$/, '');
+      // Resolve a development junction to the folder that really holds tools/.
+      try {
+        if (fs.existsSync(root)) root = fs.realpathSync(root);
+      } catch (eR) { /* keep the unresolved path */ }
+      if (unique.indexOf(root) === -1) unique.push(root);
     }
     return unique;
   }
@@ -116,9 +135,12 @@ var Audio = (function () {
   function bundledCandidates() {
     var list = [];
     var roots = extensionRoots();
+    var names = ['ffmpeg.exe', 'ffmpeg'];
     for (var i = 0; i < roots.length; i++) {
-      list.push(path.join(roots[i], 'tools', 'ffmpeg', 'ffmpeg.exe'));
-      list.push(path.join(roots[i], 'tools', 'ffmpeg', 'bin', 'ffmpeg.exe'));
+      for (var n = 0; n < names.length; n++) {
+        list.push(path.join(roots[i], 'tools', 'ffmpeg', names[n]));
+        list.push(path.join(roots[i], 'tools', 'ffmpeg', 'bin', names[n]));
+      }
     }
     return list;
   }
@@ -170,7 +192,8 @@ var Audio = (function () {
     }
 
     ffmpegPath = '';
-    lastError = 'ffmpeg.exe not found. Run setup-ffmpeg.ps1, or point the panel at ffmpeg.exe under Advanced.';
+    lastError = 'ffmpeg.exe was not found. Reinstall openCaption so the bundled copy is restored, ' +
+                'or point the panel at ffmpeg.exe under Advanced.';
     return '';
   }
 

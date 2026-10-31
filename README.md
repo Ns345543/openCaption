@@ -19,6 +19,19 @@ timeline ──► clip list (ExtendScript)          paths + in/out points + pos
          ──► sequence.createCaptionTrack()     editable caption track in Premiere
 ```
 
+## Interface
+
+Hard 90° edges throughout, no rounded corners, and five palettes you can switch
+from the theme rail above the cards. The choice is saved with your other settings.
+
+| Theme | Look |
+|---|---|
+| Mono | black & white (default) |
+| Void | violet and cyan on near-black |
+| Ember | amber on charcoal |
+| Matrix | phosphor green |
+| Paper | light paper with vermilion accents |
+
 ## Requirements
 
 | | |
@@ -37,7 +50,7 @@ Two supported routes, both free and per-user (no admin rights):
 
 **A. Windows installer (simplest)**
 
-1. Download `openCaption-1.2.0-windows.zip` and extract it.
+1. Download `openCaption-1.3.0-windows.zip` and extract it.
 2. Close Premiere Pro.
 3. Run `install.bat`.
 
@@ -48,7 +61,7 @@ the saved API key.
 
 **B. ZXP (any CEP extension manager)**
 
-Install `openCaption-1.2.0.zxp` with Anastasiy's Extension Manager, ZXPInstaller or
+Install `openCaption-1.3.0.zxp` with Anastasiy's Extension Manager, ZXPInstaller or
 Adobe `ExManCmd`. This is a **CEP** panel — a UXP-only installer will report
 `manifest.json not found`; use a CEP one instead. The .zxp is signed with a
 self-signed certificate, which CEP loads only when `PlayerDebugMode` is on, so if

@@ -1,19 +1,16 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="mono">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>openCaption</title>
   <link rel="stylesheet" href="css/style.css" />
+  <script src="js/theme.js"></script>
 </head>
 <body>
 <div class="app">
 
-  <div class="aurora" aria-hidden="true">
-    <span class="blob blob-a"></span>
-    <span class="blob blob-b"></span>
-    <span class="blob blob-c"></span>
-  </div>
+  <div class="backdrop" aria-hidden="true"></div>
 
   <header class="topbar">
     <div class="brand">
@@ -25,6 +22,12 @@
     </div>
     <div class="host" id="hostInfo">connecting…</div>
   </header>
+
+  <nav class="themebar" aria-label="Theme">
+    <span class="themebar-label">Theme</span>
+    <div class="themes" id="themes"></div>
+    <span class="theme-name" id="themeName">mono</span>
+  </nav>
 
   <main class="scroll">
 

@@ -17,7 +17,7 @@
   var activeRun = null;
   var cs = new CSInterface();
 
-  var VERSION = '1.2.0';
+  var VERSION = '1.3.0';
 
   function $(id) { return document.getElementById(id); }
 
@@ -771,7 +771,7 @@
      'snapPauses', 'autoImport',
      'generate', 'cancel', 'bar', 'progressLabel', 'log', 'ffmpegPath', 'browseFfmpeg', 'chunkSec',
      'concurrency', 'silenceDb', 'openDataFolder', 'openCaptionFolder', 'version', 'hostInfo',
-     'refreshModels', 'testModel']
+     'refreshModels', 'testModel', 'themes', 'themeName']
       .forEach(function (id) { els[id] = $(id); });
 
     els.version.textContent = 'openCaption v' + VERSION;
@@ -783,7 +783,12 @@
     }
 
     settings = Config.load();
+    settings.theme = Theme.apply(settings.theme);
     applyToForm();
+    Theme.mount(els.themes, function (id) {
+      settings.theme = id;
+      persist();
+    });
     bind();
 
     log('Ready. Open a sequence, then press Generate.', 'dim');
@@ -809,6 +814,7 @@
     }).then(function (res) {
       if (res && res.ok) {
         els.hostInfo.textContent = 'Premiere ' + res.version + (res.project ? ' · ' + res.project : '');
+        els.hostInfo.title = els.hostInfo.textContent;
         if (!res.sequence) log('No active sequence yet — open one before generating.', 'dim');
       } else {
         els.hostInfo.textContent = 'not connected';

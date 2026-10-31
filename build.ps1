@@ -47,27 +47,33 @@ function Ok($text)   { Write-Host "   $text" -ForegroundColor Green }
 function Note($text) { Write-Host "   $text" -ForegroundColor DarkGray }
 function Warn($text) { Write-Host "   $text" -ForegroundColor Yellow }
 
+function Read-Utf8($path) {
+    # Windows PowerShell 5.1's Get-Content treats BOM-less files as ANSI, which
+    # turned em dashes and "·" into mojibake when Set-Version wrote them back.
+    return [System.IO.File]::ReadAllText($path, [System.Text.Encoding]::UTF8)
+}
+
 function Get-FileVersionFromSource {
-    $manifest = [xml](Get-Content -LiteralPath (Join-Path $ExtDir 'CSXS\manifest.xml') -Raw)
+    $manifest = [xml](Read-Utf8 (Join-Path $ExtDir 'CSXS\manifest.xml'))
     $manifest.ExtensionManifest.ExtensionBundleVersion
 }
 
 function Get-AppVersion {
-    $text = Get-Content -LiteralPath (Join-Path $ExtDir 'js\app.js') -Raw
+    $text = Read-Utf8 (Join-Path $ExtDir 'js\app.js')
     if ($text -match "var VERSION = '([^']+)'") { return $Matches[1] }
     return ''
 }
 
 function Set-Version($newVersion) {
     $manifestPath = Join-Path $ExtDir 'CSXS\manifest.xml'
-    $text = Get-Content -LiteralPath $manifestPath -Raw
+    $text = Read-Utf8 $manifestPath
     $text = [regex]::Replace($text, 'ExtensionBundleVersion="[^"]+"', 'ExtensionBundleVersion="' + $newVersion + '"')
     $text = [regex]::Replace($text, '<Extension Id="com\.captionai\.panel\.main" Version="[^"]+"',
         '<Extension Id="com.captionai.panel.main" Version="' + $newVersion + '"')
     [System.IO.File]::WriteAllText($manifestPath, $text, (New-Object System.Text.UTF8Encoding($false)))
 
     $appPath = Join-Path $ExtDir 'js\app.js'
-    $app = Get-Content -LiteralPath $appPath -Raw
+    $app = Read-Utf8 $appPath
     $app = [regex]::Replace($app, "var VERSION = '[^']+'", "var VERSION = '$newVersion'")
     [System.IO.File]::WriteAllText($appPath, $app, (New-Object System.Text.UTF8Encoding($false)))
 }

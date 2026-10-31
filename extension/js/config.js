@@ -43,7 +43,8 @@ var Config = (function () {
     ffmpegPath: '',
     chunkSec: 30,
     concurrency: 3,
-    silenceDb: -35
+    silenceDb: -35,
+    theme: 'mono'
   };
 
   function ensureDirs() {

@@ -56,7 +56,7 @@ Two supported routes, both free and per-user (no admin rights):
 
 **A. Windows installer (simplest)**
 
-1. Download `openCaption-1.4.1-windows.zip` and extract it.
+1. Download `openCaption-1.5.0-windows.zip` and extract it.
 2. Close Premiere Pro.
 3. Run `install.bat`.
 
@@ -67,7 +67,7 @@ the saved API key.
 
 **B. ZXP (any CEP extension manager)**
 
-Install `openCaption-1.4.1.zxp` with Anastasiy's Extension Manager, ZXPInstaller or
+Install `openCaption-1.5.0.zxp` with Anastasiy's Extension Manager, ZXPInstaller or
 Adobe `ExManCmd`. This is a **CEP** panel — a UXP-only installer will report
 `manifest.json not found`; use a CEP one instead. The .zxp is signed with a
 self-signed certificate, which CEP loads only when `PlayerDebugMode` is on, so if
@@ -80,6 +80,29 @@ instructions; the user only supplies a Gemini API key.
 > The panel was named "Caption AI" up to 1.1.4. Its internal ids are unchanged —
 > extension `com.captionai.panel` and settings in `%APPDATA%\CaptionAI` — so an
 > existing install is upgraded in place and keeps the saved key.
+
+## Updates
+
+The panel checks GitHub for a newer release when it opens and shows an
+**update available / update now** banner:
+
+- The check uses the public `releases/latest` API at most once every 6 hours and
+  caches the answer in `%APPDATA%\CaptionAI\update.json`. Offline launches stay
+  quiet; the footer also has a **check for updates** link.
+- **Update now** downloads the Windows package from the openCaption GitHub
+  release, verifies its SHA-256 checksum, extracts it under
+  `%APPDATA%\CaptionAI\updates\`, and starts a small helper.
+- The helper waits for Premiere Pro to close, replaces
+  `%APPDATA%\Adobe\CEP\extensions\com.captionai.panel`, and relaunches Premiere.
+  Files are never replaced while Premiere is running.
+- The API key and all settings live in `%APPDATA%\CaptionAI` and are untouched.
+- If the panel is installed under `Program Files`, is a developer junction, or
+  the release has no checksum, **Update now** opens the release page instead of
+  installing automatically.
+
+> **First updater release:** v1.5.0 is the first version that can check for
+> updates. Users on 1.4.x must install v1.5.0 once by hand; from then on, newer
+> releases appear inside the panel.
 
 ## Develop from this folder
 
@@ -304,6 +327,7 @@ extension/
   js/audio.js              ffmpeg slicing, PCM assembly, speech envelope
   js/gemini.js             REST calls, JSON schema, retries
   js/srt.js                word timing, cue clean-up, wrapping, SRT output
+  js/update.js             GitHub release check + verified self-updater
   js/app.js                pipeline + UI
   jsx/host.jsx             ExtendScript: clip scan, SRT import, caption track
   jsx/json2.js             JSON polyfill for ExtendScript (loaded by host.jsx)

@@ -458,6 +458,136 @@ button, input, select, summary { font-family: inherit; }
 
 .theme-swatch-custom { border-style: dashed; }
 
+/* ---------- update banner ---------- */
+
+.updatebar {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px 9px;
+  padding: 9px 13px 10px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--accent);
+  box-shadow: inset 0 -10px 24px -18px var(--accent);
+  animation: update-in .18s ease-out;
+}
+
+@keyframes update-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.update-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.update-pulse {
+  width: 6px;
+  height: 6px;
+  margin-top: 4px;
+  flex: 0 0 auto;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--glow);
+  animation: pulse 1.8s ease-in-out infinite;
+}
+
+.update-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.update-copy strong {
+  font-family: "Bahnschrift", "Segoe UI", sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.update-copy span {
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.update-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+}
+
+.update-later {
+  margin-left: auto;
+  font-size: 8.5px;
+  letter-spacing: 1.3px;
+}
+
+.update-meter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 100%;
+}
+
+.update-track {
+  position: relative;
+  flex: 1 1 auto;
+  height: 4px;
+  background: var(--input-bg);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.update-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--glow);
+  transition: width .15s linear;
+}
+
+.update-pct {
+  min-width: 34px;
+  text-align: right;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 8.5px;
+  letter-spacing: 1px;
+  color: var(--muted-2);
+}
+
+.update-notes {
+  flex: 1 1 100%;
+  max-height: 150px;
+  overflow: auto;
+  margin: 0;
+  padding: 8px 9px;
+  background: var(--log-bg);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 9px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.foot-check {
+  font-size: 8px;
+  letter-spacing: 1.2px;
+}
+
 /* ---------- layout ---------- */
 
 .scroll {

@@ -17,7 +17,7 @@
   var activeRun = null;
   var cs = new CSInterface();
 
-  var VERSION = '1.4.1';
+  var VERSION = '1.5.0';
 
   function $(id) { return document.getElementById(id); }
 
@@ -861,6 +861,173 @@
     log('Custom theme deleted.', 'dim');
   }
 
+  /* --------------------------------------------------------------- updates */
+
+  var pendingUpdate = null;
+  var updateBusy = false;
+  var updateDismissed = false;
+  var updateLaunched = false;
+
+  function updateSub(text) {
+    if (els.updateSub) els.updateSub.textContent = text;
+  }
+
+  function showUpdate(res) {
+    pendingUpdate = res;
+    updateDismissed = false;
+
+    var latest = res.latest || {};
+    els.updateTitle.textContent = 'Update available — v' + (latest.version || '');
+    updateSub(res.prepared
+      ? 'v' + latest.version + ' is downloaded and verified. Close Premiere Pro to finish installing.'
+      : 'You are on v' + res.current + '.');
+
+    els.updateNotes.textContent = latest.notes || 'No release notes were included with this release.';
+    els.updateNotes.classList.add('hidden');
+    els.updateNotesToggle.textContent = "What's new";
+    els.updateMeter.classList.add('hidden');
+    els.updateFill.style.width = '0%';
+    els.updatePct.textContent = '0%';
+    els.updateNow.disabled = false;
+    els.updateNotesToggle.disabled = false;
+    els.updateNow.textContent = res.prepared ? 'Finish update' : 'Update now';
+
+    if (res.canSelfUpdate && !res.canSelfUpdate.ok) {
+      els.updateNow.textContent = 'Open download';
+      updateSub('Automatic install is unavailable here. This button opens the release page.');
+      log('Automatic update unavailable: ' + res.canSelfUpdate.reason, 'dim');
+    }
+
+    els.updateBar.classList.remove('hidden');
+  }
+
+  function launchPrepared(prep) {
+    if (updateLaunched) return;
+
+    var launched = Updater.installPrepared(prep);
+    if (!launched.ok) {
+      var reason = launched.error || 'The update helper could not be started.';
+      els.updateNow.disabled = false;
+      els.updateNow.textContent = 'Retry';
+      els.updateMeter.classList.add('hidden');
+      updateSub(reason);
+      log('! ' + reason, 'err');
+      return;
+    }
+
+    updateLaunched = true;
+    els.updateNow.disabled = true;
+    els.updateNotesToggle.disabled = false;
+    els.updateNow.textContent = 'Waiting';
+    els.updateTitle.textContent = 'Update ready — v' + prep.version;
+    updateSub('Close Premiere Pro to finish installing. It will reopen automatically. Your API key and settings are kept.');
+    log('Update v' + prep.version + ' is downloaded and verified. Close Premiere Pro to install it.', 'ok');
+  }
+
+  function onUpdateNow() {
+    if (!pendingUpdate || updateBusy || updateLaunched) return;
+    var res = pendingUpdate;
+
+    if (!res.canSelfUpdate || !res.canSelfUpdate.ok) {
+      cs.openURLInDefaultBrowser(Updater.openReleasePage(res.latest));
+      log('Opening the release page for v' + ((res.latest && res.latest.version) || '') + '.', 'dim');
+      return;
+    }
+
+    if (res.prepared) {
+      launchPrepared(res.prepared);
+      return;
+    }
+
+    updateBusy = true;
+    els.updateNow.disabled = true;
+    els.updateNotesToggle.disabled = true;
+    els.updateNow.textContent = 'Updating';
+    els.updateMeter.classList.remove('hidden');
+    els.updateNotes.classList.add('hidden');
+    els.updateFill.style.width = '0%';
+    els.updatePct.textContent = '0%';
+
+    Updater.prepare(res.latest, function (pct, label) {
+      els.updateFill.style.width = pct + '%';
+      els.updatePct.textContent = pct + '%';
+      if (label) updateSub(label + ' — v' + res.latest.version);
+    }).then(function (prep) {
+      updateBusy = false;
+      res.prepared = prep;
+      els.updateMeter.classList.add('hidden');
+      els.updateNotesToggle.disabled = false;
+      launchPrepared(prep);
+    }).catch(function (err) {
+      updateBusy = false;
+      var message = (err && err.message) ? err.message : 'Unknown error.';
+      els.updateNow.disabled = false;
+      els.updateNow.textContent = 'Retry';
+      els.updateNotesToggle.disabled = false;
+      els.updateMeter.classList.add('hidden');
+      updateSub(message);
+      log('! Update failed: ' + message, 'err');
+      log('You can install it manually from ' + Updater.openReleasePage(res.latest), 'dim');
+    });
+  }
+
+  function manualUpdateCheck() {
+    if (updateBusy || updateLaunched) return;
+    if (typeof Updater === 'undefined' || !Updater.ok) {
+      log('! ' + ((typeof Updater !== 'undefined' && Updater.error) || 'Updates are unavailable.'), 'warn');
+      return;
+    }
+
+    log('Checking GitHub for a newer release…', 'dim');
+    Updater.check(VERSION, true).then(function (res) {
+      if (!res || !res.ok) {
+        log('! Update check failed: ' + ((res && res.error) || 'unknown error'), 'warn');
+        return;
+      }
+      if (res.updateAvailable) {
+        showUpdate(res);
+        log('Update available: v' + res.latest.version + '.', 'ok');
+      } else if (res.stale) {
+        els.updateBar.classList.add('hidden');
+        pendingUpdate = null;
+        log('Could not reach GitHub (' + (res.error || 'offline') + '). Last known release: v' + ((res.latest && res.latest.version) || 'unknown') + '.', 'warn');
+      } else {
+        els.updateBar.classList.add('hidden');
+        pendingUpdate = null;
+        log('openCaption v' + VERSION + ' is up to date.', 'dim');
+      }
+    }).catch(function (e) {
+      log('! Update check failed: ' + e.message, 'warn');
+    });
+  }
+
+  function initUpdater() {
+    if (typeof Updater === 'undefined' || !Updater.ok) {
+      if (typeof Updater !== 'undefined' && Updater.error) log('! ' + Updater.error, 'warn');
+      return;
+    }
+
+    // The helper writes its result next to the settings; report it once.
+    var result = Updater.readResult();
+    if (result) {
+      if (result.status === 'ok') {
+        log('Updated to openCaption v' + result.version + '.', 'ok');
+      } else if (result.status === 'error') {
+        log('! The last update did not install: ' + result.message, 'err');
+      } else if (result.status === 'timeout') {
+        log('The last update was not installed because Premiere stayed open.', 'warn');
+      }
+    }
+
+    // Startup checks are silent: an offline machine should not see errors.
+    Updater.check(VERSION).then(function (res) {
+      if (!res || !res.ok || !res.updateAvailable) return;
+      if (updateDismissed || updateLaunched) return;
+      showUpdate(res);
+      log('Update available: v' + res.latest.version + '. Use "Update now" or install it later.', 'ok');
+    }).catch(function () { /* silent at startup */ });
+  }
+
   /* ----------------------------------------------------------------- boot */
 
   function bind() {
@@ -936,6 +1103,17 @@
     els.cancel.addEventListener('click', requestCancel);
     els.clearLogBtn.addEventListener('click', clearLog);
 
+    els.updateNow.addEventListener('click', onUpdateNow);
+    els.updateLater.addEventListener('click', function () {
+      updateDismissed = true;
+      els.updateBar.classList.add('hidden');
+    });
+    els.updateNotesToggle.addEventListener('click', function () {
+      var hidden = els.updateNotes.classList.toggle('hidden');
+      els.updateNotesToggle.textContent = hidden ? "What's new" : 'Hide notes';
+    });
+    els.checkUpdates.addEventListener('click', manualUpdateCheck);
+
     document.addEventListener('keydown', function (e) {
       if (e.key !== 'Escape') return;
       if (running) {
@@ -972,7 +1150,9 @@
      'customBg', 'customBgHex', 'customPanel', 'customPanelHex',
      'customAccent', 'customAccentHex', 'customText', 'customTextHex',
      'customThemeSave', 'customThemeDelete', 'customThemeCancel',
-     'tpBg', 'tpCard', 'tpText', 'tpMuted', 'tpAccent']
+     'tpBg', 'tpCard', 'tpText', 'tpMuted', 'tpAccent',
+     'updateBar', 'updateTitle', 'updateSub', 'updateNow', 'updateNotesToggle',
+     'updateLater', 'updateMeter', 'updateFill', 'updatePct', 'updateNotes', 'checkUpdates']
       .forEach(function (id) { els[id] = $(id); });
 
     els.version.textContent = 'openCaption v' + VERSION;
@@ -1004,6 +1184,8 @@
     if (!Audio.resolve(settings.ffmpegPath)) {
       log('! ffmpeg was not found. Reinstall, or pick an ffmpeg.exe under Advanced.', 'warn');
     }
+
+    initUpdater();
 
     // Ask the API which models this key can actually use. Google retires model
     // names regularly, so the dropdown is never trusted as the source of truth.

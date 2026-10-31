@@ -66,6 +66,22 @@ imported .srt is filed under a "99 openCaption" bin at the top of your project.
 The files also stay on disk in %APPDATA%\CaptionAI\captions.
 
 
+UPDATES
+-------
+openCaption 1.5.0 and newer checks GitHub when the panel opens. When a newer
+release exists, a banner appears inside the panel with an "Update now" button.
+The footer also has a "check for updates" link.
+
+"Update now" downloads the release from the openCaption GitHub page, verifies
+its SHA-256 checksum, and then waits for you to close Premiere Pro. It replaces
+the panel and reopens Premiere. Your API key and settings in
+%APPDATA%\CaptionAI are kept.
+
+If you are on 1.4.x or older, install 1.5.0 once by hand: older versions do not
+check for updates. If the panel cannot install automatically (for example, a
+copy under Program Files), the button opens the release page instead.
+
+
 TROUBLESHOOTING
 ---------------
 Panel missing from Window > Extensions

@@ -1,4 +1,4 @@
-# Caption AI — install (Windows)
+# openCaption — install (Windows)
 #
 # Links the extension into the per-user CEP folder and enables PlayerDebugMode so
 # Premiere will load an unsigned panel. No admin rights, no code signing needed.
@@ -42,4 +42,4 @@ Write-Host ''
 Write-Host 'Next steps:' -ForegroundColor Cyan
 Write-Host '  1. Run  .\setup-ffmpeg.ps1   (downloads ffmpeg.exe into extension\tools\ffmpeg)'
 Write-Host '  2. Restart Premiere Pro'
-Write-Host '  3. Window > Extensions > Caption AI'
+Write-Host '  3. Window > Extensions > openCaption'

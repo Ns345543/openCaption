@@ -1,4 +1,4 @@
-Caption AI — third-party notices
+openCaption — third-party notices
 ================================
 
 This extension ships one third-party program.

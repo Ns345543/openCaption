@@ -1,4 +1,4 @@
-# Caption AI — auto captions for Premiere Pro (Gemini)
+# openCaption — auto captions for Premiere Pro (Gemini)
 
 A CEP panel for Premiere Pro that transcribes your timeline audio with the Google
 Gemini API and drops the result back as a real, editable caption track.
@@ -37,7 +37,7 @@ Two supported routes, both free and per-user (no admin rights):
 
 **A. Windows installer (simplest)**
 
-1. Download `CaptionAI-1.1.4-windows.zip` and extract it.
+1. Download `openCaption-1.2.0-windows.zip` and extract it.
 2. Close Premiere Pro.
 3. Run `install.bat`.
 
@@ -48,7 +48,7 @@ the saved API key.
 
 **B. ZXP (any CEP extension manager)**
 
-Install `CaptionAI-1.1.4.zxp` with Anastasiy's Extension Manager, ZXPInstaller or
+Install `openCaption-1.2.0.zxp` with Anastasiy's Extension Manager, ZXPInstaller or
 Adobe `ExManCmd`. This is a **CEP** panel — a UXP-only installer will report
 `manifest.json not found`; use a CEP one instead. The .zxp is signed with a
 self-signed certificate, which CEP loads only when `PlayerDebugMode` is on, so if
@@ -57,6 +57,10 @@ setting) and restart Premiere.
 
 Both packages include `ffmpeg.exe`, the panel and this README's condensed
 instructions; the user only supplies a Gemini API key.
+
+> The panel was named "Caption AI" up to 1.1.4. Its internal ids are unchanged —
+> extension `com.captionai.panel` and settings in `%APPDATA%\CaptionAI` — so an
+> existing install is upgraded in place and keeps the saved key.
 
 ## Develop from this folder
 
@@ -71,7 +75,7 @@ powershell -ExecutionPolicy Bypass -File .\setup-ffmpeg.ps1
    (per-user, no admin rights, and edits you make in this folder are live).
 2. Sets `PlayerDebugMode=1` for CSXS 9–16 so Premiere loads the unsigned panel.
 
-Then restart Premiere Pro and open **Window → Extensions → Caption AI**.
+Then restart Premiere Pro and open **Window → Extensions → openCaption**.
 
 > Running the packaged `install.bat` replaces that junction with a real copy, so
 > your edits stop being live. Re-run `.\install.ps1` here to go back to developing.
@@ -108,7 +112,7 @@ if you want the native script.
 
 The panel writes `…\CaptionAI\captions\<sequence>_<timestamp>.srt` and, by default,
 imports it and calls `createCaptionTrack()` so a captions track appears on the
-sequence. Imported SRTs are filed in a bin called **99 Caption AI** at the project
+sequence. Imported SRTs are filed in a bin called **99 openCaption** at the project
 root (created on first use), so they never mix into your own bins. If Premiere
 refuses, the SRT is still on disk — drag it into the Project panel and onto the
 sequence.
@@ -312,8 +316,8 @@ Output lands in `dist\`:
 
 | File | What it is |
 |---|---|
-| `CaptionAI-<ver>.zxp` | signed CEP extension, ~37 MB (ffmpeg compresses well) |
-| `CaptionAI-<ver>-windows.zip` | `install.bat` + panel + the .zxp, ~74 MB |
+| `openCaption-<ver>.zxp` | signed CEP extension, ~37 MB (ffmpeg compresses well) |
+| `openCaption-<ver>-windows.zip` | `install.bat` + panel + the .zxp, ~74 MB |
 | `SHA256SUMS.txt` | checksums for both |
 
 The build downloads Adobe's `ZXPSignCmd.exe` once into `.build\tools`, creates a

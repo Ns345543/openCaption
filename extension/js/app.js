@@ -17,7 +17,7 @@
   var activeRun = null;
   var cs = new CSInterface();
 
-  var VERSION = '1.1.4';
+  var VERSION = '1.2.0';
 
   function $(id) { return document.getElementById(id); }
 
@@ -626,7 +626,7 @@
           log('! Could not create the caption track: ' + imp.error, 'warn');
           log('  The SRT is still on disk — drag it into the project panel, or use File > Import.', 'dim');
         } else if (imp.created) {
-          log('Caption track created on "' + imp.sequence + '"; SRT filed in "' + (imp.bin || '99 Caption AI') + '".', 'ok');
+          log('Caption track created on "' + imp.sequence + '"; SRT filed in "' + (imp.bin || '99 openCaption') + '".', 'ok');
         } else {
           log('! Premiere imported the file but did not report a caption track. Drag the SRT onto the sequence.', 'warn');
         }
@@ -774,7 +774,7 @@
      'refreshModels', 'testModel']
       .forEach(function (id) { els[id] = $(id); });
 
-    els.version.textContent = 'Caption AI v' + VERSION;
+    els.version.textContent = 'openCaption v' + VERSION;
 
     if (!Config.ok) {
       els.generate.disabled = true;

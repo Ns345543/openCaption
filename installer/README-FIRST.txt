@@ -1,7 +1,7 @@
-Caption AI - install on Windows
+openCaption - install on Windows
 ===============================
 
-Caption AI is a free panel for Adobe Premiere Pro that turns your timeline
+openCaption is a free panel for Adobe Premiere Pro that turns your timeline
 audio into a real caption track. It uses your own Google Gemini API key and
 never renders or exports audio.
 
@@ -22,7 +22,7 @@ INSTALL (easiest)
    - If Windows shows "Windows protected your PC", click "More info" then
      "Run anyway". The script only copies files into your user profile.
 4. Start Premiere Pro.
-5. Window > Extensions > Caption AI.
+5. Window > Extensions > openCaption.
 6. Paste your API key and press Save.
 
 That is it. The installer copies the panel to:
@@ -38,10 +38,10 @@ To remove it later, run  uninstall.bat  in this folder.
 INSTALL FROM A .ZXP
 -------------------
 If you already use a CEP extension manager (Anastasiy's Extension Manager,
-ZXP/UXP installer, or Adobe ExManCmd), install CaptionAI-x.y.z.zxp with it
+ZXP/UXP installer, or Adobe ExManCmd), install openCaption-x.y.z.zxp with it
 instead of running install.bat.
 
-Caption AI is a CEP panel, not a UXP plugin. If an installer says
+openCaption is a CEP panel, not a UXP plugin. If an installer says
 "manifest.json not found", it is a UXP-only tool: use install.bat, or a CEP
 installer such as the free ZXPInstaller, instead.
 
@@ -55,14 +55,14 @@ will use.
 
 FIRST RUN
 ---------
-1. Window > Extensions > Caption AI.
+1. Window > Extensions > openCaption.
 2. Paste your Gemini API key, press "Save", then "test" to check it.
 3. Open a sequence in Premiere.
 4. Press "Generate captions".
 
 By default the panel uses whatever is selected on the timeline, else the work
 area, else the whole sequence. Captions land on a caption track, and the
-imported .srt is filed under a "99 Caption AI" bin at the top of your project.
+imported .srt is filed under a "99 openCaption" bin at the top of your project.
 The files also stay on disk in %APPDATA%\CaptionAI\captions.
 
 
@@ -73,7 +73,7 @@ Panel missing from Window > Extensions
   appears after a full restart.
 
 "manifest.json not found" during install
-  You used a UXP-only installer. Caption AI is a CEP panel: use install.bat,
+  You used a UXP-only installer. openCaption is a CEP panel: use install.bat,
   or the free ZXPInstaller / Anastasiy's Extension Manager.
 
 "Node.js is not available in this panel"

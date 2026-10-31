@@ -1,5 +1,5 @@
 <#
-  Caption AI - installer (Windows)
+  openCaption - installer (Windows)
 
   Copies the panel into the per-user CEP extensions folder, unlocks the panel
   for the Premiere versions that use CEP 9-14, and tells you what to do next.
@@ -52,7 +52,7 @@ function Remove-Panel {
 }
 
 Write-Host ''
-Write-Host '  Caption AI installer' -ForegroundColor Cyan
+Write-Host '  openCaption installer' -ForegroundColor Cyan
 Write-Host '  -------------------' -ForegroundColor DarkGray
 Write-Host ''
 
@@ -64,7 +64,7 @@ if ($Uninstall) {
     }
 
     if (Remove-Panel) { Write-Ok "Removed $Dest" }
-    else { Write-Step 'Caption AI was not installed; nothing to remove.' }
+    else { Write-Step 'openCaption was not installed; nothing to remove.' }
 
     if ($Purge) {
         if (Test-Path -LiteralPath $DataDir) {
@@ -174,16 +174,16 @@ if ($premiereVersions.Count -gt 0) {
 }
 
 Write-Host ''
-Write-Ok 'Caption AI is installed.'
+Write-Ok 'openCaption is installed.'
 Write-Host ''
 Write-Step 'Next:'
 Write-Step '  1. Start Premiere Pro.'
-Write-Step '  2. Window > Extensions > Caption AI.'
+Write-Step '  2. Window > Extensions > openCaption.'
 Write-Step '  3. Paste a free Google Gemini API key and press Save.'
 Write-Step '  4. Open a sequence and press "Generate captions".'
 Write-Host ''
 Write-Step 'Caption files are saved in:'
 Write-Step "  $DataDir\captions"
-Write-Step 'and imported into the "99 Caption AI" bin of your project.'
+Write-Step 'and imported into the "99 openCaption" bin of your project.'
 Write-Host ''
 exit 0

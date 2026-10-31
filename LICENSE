@@ -1,10 +1,10 @@
-# Caption AI
+# openCaption
 
 A free Adobe Premiere Pro panel that turns the audio on your timeline into a real
 caption track using your own Google Gemini API key. Nothing is rendered or
 exported — audio is sliced straight out of the source media files.
 
-Copyright (c) 2026 Caption AI contributors
+Copyright (c) 2026 openCaption contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

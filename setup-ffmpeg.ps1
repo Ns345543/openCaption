@@ -1,4 +1,4 @@
-# Caption AI — fetch ffmpeg
+# openCaption — fetch ffmpeg
 #
 # Downloads a static ffmpeg build and drops ffmpeg.exe next to the extension so the
 # panel can slice audio out of your source media. Safe to re-run.

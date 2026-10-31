@@ -7,7 +7,7 @@
 var CaptionAI = (function () {
 
   var TICKS_PER_SECOND = 254016000000;
-  var CAPTION_BIN_NAME = '99 Caption AI';
+  var CAPTION_BIN_NAME = '99 openCaption';
 
   function j(obj) {
     try {

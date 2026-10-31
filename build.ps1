@@ -1,9 +1,9 @@
 <#
-  build.ps1 - packages Caption AI for other people to install.
+  build.ps1 - packages openCaption for other people to install.
 
   Output (in .\dist):
-    CaptionAI-<version>.zxp            signed CEP extension (any ZXP installer)
-    CaptionAI-<version>-windows.zip    install.bat + extension + the .zxp
+    openCaption-<version>.zxp            signed CEP extension (any ZXP installer)
+    openCaption-<version>-windows.zip    install.bat + extension + the .zxp
     SHA256SUMS.txt                     checksums for both
 
   Typical use:
@@ -24,7 +24,7 @@ param(
     [string]$Version,
     [switch]$SkipSign,
     [switch]$NoTimestamp,
-    [string]$Publisher = 'Caption AI',
+    [string]$Publisher = 'openCaption',
     [string]$CertPassword = 'captionai-selfsigned'
 )
 
@@ -161,7 +161,7 @@ if ($appVersion -ne $manifestVersion) {
     throw "Version mismatch: manifest says $manifestVersion, app.js says $appVersion. Pass -Version to fix both."
 }
 $version = $manifestVersion
-Ok "Caption AI $version"
+Ok "openCaption $version"
 
 # -------------------------------------------------------------------- stage ---
 Step 'Staging files'
@@ -195,7 +195,7 @@ Ok "$fileCount files staged"
 
 # --------------------------------------------------------------------- sign ---
 New-Item -ItemType Directory -Force -Path $Dist | Out-Null
-$zxpPath = Join-Path $Dist "CaptionAI-$version.zxp"
+$zxpPath = Join-Path $Dist "openCaption-$version.zxp"
 
 if ($SkipSign) {
     Warn 'Skipping the .zxp (-SkipSign).'
@@ -214,7 +214,7 @@ if ($SkipSign) {
 
 # ------------------------------------------------------------ windows bundle ---
 Step 'Building the Windows installer package'
-$bundleName = "CaptionAI-$version-windows"
+$bundleName = "openCaption-$version-windows"
 $bundleDir = Join-Path $Dist $bundleName
 if (Test-Path -LiteralPath $bundleDir) { Remove-Item -LiteralPath $bundleDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $bundleDir | Out-Null

@@ -1,10 +1,10 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title Caption AI - uninstall
+title openCaption - uninstall
 
 echo.
-echo  Caption AI - uninstall
+echo  openCaption - uninstall
 echo.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1" -Uninstall %*
 set "RC=%ERRORLEVEL%"

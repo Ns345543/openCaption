@@ -50,8 +50,11 @@
     return requested === 'auto' ? text + ' — auto' : text;
   }
 
-  function syncLogClear() {
-    if (els.clearLogBtn) els.clearLogBtn.disabled = els.log.textContent.trim() === '';
+  function syncLogButtons() {
+    if (!els.log) return;
+    var empty = els.log.textContent.trim() === '';
+    if (els.clearLogBtn) els.clearLogBtn.disabled = empty;
+    if (els.copyLogBtn) els.copyLogBtn.disabled = empty;
   }
 
   function log(msg, cls) {
@@ -60,12 +63,79 @@
     line.textContent = msg;
     els.log.appendChild(line);
     els.log.scrollTop = els.log.scrollHeight;
-    syncLogClear();
+    syncLogButtons();
   }
 
   function clearLog() {
     els.log.innerHTML = '';
-    syncLogClear();
+    syncLogButtons();
+  }
+
+  /** The log as plain text, one line per entry, with Windows line endings. */
+  function logText() {
+    var out = [];
+    for (var i = 0; i < els.log.children.length; i++) {
+      out.push(els.log.children[i].textContent);
+    }
+    return out.join('\r\n');
+  }
+
+  /**
+   * Put text on the clipboard. execCommand runs synchronously inside the click
+   * handler, which is the reliable path in CEP; navigator.clipboard is a
+   * fallback for builds where execCommand is disabled.
+   */
+  function copyText(text) {
+    var textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.top = '0';
+    textarea.style.left = '-9999px';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+
+    var copied = false;
+    try {
+      textarea.select();
+      textarea.setSelectionRange(0, text.length);
+      copied = document.execCommand('copy');
+    } catch (e) {
+      copied = false;
+    }
+    document.body.removeChild(textarea);
+
+    if (copied) return Promise.resolve();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return Promise.reject(new Error('the clipboard is unavailable'));
+  }
+
+  var copyLabelTimer = 0;
+
+  function flashCopy(label) {
+    if (!els.copyLogBtn) return;
+    els.copyLogBtn.textContent = label;
+    els.copyLogBtn.disabled = true;
+    if (copyLabelTimer) clearTimeout(copyLabelTimer);
+    copyLabelTimer = setTimeout(function () {
+      copyLabelTimer = 0;
+      els.copyLogBtn.textContent = 'copy';
+      syncLogButtons();
+    }, 1400);
+  }
+
+  function copyLog() {
+    var text = logText();
+    if (!text) return;
+    copyText(text).then(function () {
+      flashCopy('copied');
+      log('Log copied to the clipboard.', 'dim');
+    }).catch(function (err) {
+      flashCopy('failed');
+      log('! Could not copy the log: ' + ((err && err.message) || 'clipboard unavailable'), 'warn');
+    });
   }
 
   var progressCloseTimer = 0;
@@ -1101,6 +1171,7 @@
 
     els.generate.addEventListener('click', generate);
     els.cancel.addEventListener('click', requestCancel);
+    els.copyLogBtn.addEventListener('click', copyLog);
     els.clearLogBtn.addEventListener('click', clearLog);
 
     els.updateNow.addEventListener('click', onUpdateNow);
@@ -1143,7 +1214,7 @@
     ['apiCard', 'apiHead', 'apiKey', 'toggleKey', 'saveKey', 'testKey', 'clearKey', 'keyBadge', 'model', 'customModel',
      'customModelWrap', 'language', 'scope', 'wordsPerLine', 'maxLines', 'captionShape',
      'snapPauses', 'autoImport',
-     'generate', 'cancel', 'bar', 'progressTrack', 'progressLabel', 'log', 'clearLogBtn', 'ffmpegPath', 'browseFfmpeg', 'chunkSec',
+     'generate', 'cancel', 'bar', 'progressTrack', 'progressLabel', 'log', 'copyLogBtn', 'clearLogBtn', 'ffmpegPath', 'browseFfmpeg', 'chunkSec',
      'concurrency', 'silenceDb', 'openDataFolder', 'openCaptionFolder', 'version', 'hostInfo',
      'refreshModels', 'testModel', 'themes', 'themeName',
      'customThemeBtn', 'themeEditor', 'themeEditorClose', 'customThemeName',

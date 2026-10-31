@@ -78,6 +78,7 @@ html[data-theme="premiere"] .linkbtn,
 html[data-theme="premiere"] .btn:hover,
 html[data-theme="premiere"] .hint a,
 html[data-theme="premiere"] .log-clear,
+html[data-theme="premiere"] .log-copy,
 html[data-theme="premiere"] .adv .chev {
   color: var(--accent-2);
 }
@@ -1200,7 +1201,14 @@ select {
   color: var(--muted-2);
 }
 
-.log-clear {
+.log-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.log-clear,
+.log-copy {
   background: none;
   border: 0;
   padding: 0;
@@ -1214,9 +1222,12 @@ select {
   transition: opacity .15s, color .15s;
 }
 
-.log-clear:hover { opacity: 1; color: var(--text); }
-.log-clear:disabled { opacity: 0.3; cursor: default; }
-.log-clear:disabled:hover { color: var(--accent); }
+.log-clear:hover,
+.log-copy:hover { opacity: 1; color: var(--text); }
+.log-clear:disabled,
+.log-copy:disabled { opacity: 0.3; cursor: default; }
+.log-clear:disabled:hover,
+.log-copy:disabled:hover { color: var(--accent); }
 
 .log-wrap .log { margin-bottom: 0; border-top: 0; }
 

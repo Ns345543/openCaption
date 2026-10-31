@@ -772,7 +772,14 @@
           log('! Could not create the caption track: ' + imp.error, 'warn');
           log('  The SRT is still on disk — drag it into the project panel, or use File > Import.', 'dim');
         } else if (imp.created) {
-          log('Caption track created on "' + imp.sequence + '"; SRT filed in "' + (imp.bin || '99 openCaption') + '".', 'ok');
+          if (imp.numbered) {
+            log('Caption "' + imp.item + '" created on "' + imp.sequence + '"; filed in "' +
+                (imp.bin || '99 openCaption') + '".', 'ok');
+          } else {
+            log('Caption track created on "' + imp.sequence + '"; SRT "' + imp.item +
+                '" filed in "' + (imp.bin || '99 openCaption') + '".', 'ok');
+            log('  This Premiere build did not accept the 01/02 item name; rename it in the Project panel if you want it numbered.', 'dim');
+          }
         } else {
           log('! Premiere imported the file but did not report a caption track. Drag the SRT onto the sequence.', 'warn');
         }

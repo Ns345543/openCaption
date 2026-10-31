@@ -148,6 +148,64 @@ var CaptionAI = (function () {
     return bin || null;
   }
 
+  /* Caption SRTs in the bin are numbered 01, 02, 03… per project. The number
+     is taken from the highest numeric name already in the bin, so deleting one
+     never renumbers the others. */
+  function isCaptionNumber(name) {
+    return /^0*\d+(?:\.srt)?$/i.test(String(name || ''));
+  }
+
+  function captionNumber(name) {
+    var m = String(name || '').match(/^0*(\d+)(?:\.srt)?$/i);
+    return m ? Number(m[1]) : 0;
+  }
+
+  function captionLabel(n) {
+    return n < 10 ? '0' + n : String(n);
+  }
+
+  function captionItems(bin) {
+    var list = [];
+    var children;
+    try { children = bin.children; } catch (e) { return list; }
+    if (!children) return list;
+    for (var i = 0; i < children.numItems; i++) {
+      var item = children[i];
+      if (isBinItem(item)) continue;
+      var mediaPath = '';
+      try { mediaPath = item.getMediaPath() || ''; } catch (e1) { mediaPath = ''; }
+      if (/\.srt$/i.test(mediaPath)) list.push(item);
+    }
+    return list;
+  }
+
+  /* Names every SRT in the bin that is not numbered yet, in bin order. On the
+     first run after this feature this also tidies the older descriptive items;
+     numbered items are never touched, so numbers stay stable. */
+  function numberCaptionItems(bin) {
+    var list = captionItems(bin);
+    var max = 0;
+    for (var i = 0; i < list.length; i++) {
+      var name = '';
+      try { name = String(list[i].name || ''); } catch (e0) { name = ''; }
+      if (isCaptionNumber(name)) {
+        var n = captionNumber(name);
+        if (n > max) max = n;
+      }
+    }
+
+    var next = max + 1;
+    for (var j = 0; j < list.length; j++) {
+      var current = '';
+      try { current = String(list[j].name || ''); } catch (e1) { current = ''; }
+      if (isCaptionNumber(current)) continue;
+      try {
+        list[j].name = captionLabel(next);
+        next++;
+      } catch (e2) { /* older builds may refuse the rename */ }
+    }
+  }
+
   function findItemByPath(bin, wanted) {
     var children;
     try { children = bin.children; } catch (e) { return null; }
@@ -466,6 +524,17 @@ var CaptionAI = (function () {
         }
         if (!item) return fail('The SRT was imported but could not be located in the project panel.');
 
+        /* Name the project item 01, 02, 03… so the caption bin stays ordered.
+           The SRT on disk keeps its descriptive, unique filename. This happens
+           before createCaptionTrack so the track inherits the same number. */
+        var beforeName = String(item.name || '');
+        var itemName = beforeName;
+        if (bin && !isCaptionNumber(itemName)) {
+          numberCaptionItems(bin);
+          try { itemName = String(item.name || ''); } catch (e3) { itemName = beforeName; }
+        }
+        var renamed = itemName !== beforeName;
+
         var created = false;
         try {
           created = seq.createCaptionTrack(item, 0);
@@ -476,7 +545,9 @@ var CaptionAI = (function () {
         return j({
           ok: true,
           created: !!created,
-          item: String(item.name || ''),
+          item: itemName,
+          numbered: isCaptionNumber(itemName),
+          renamed: renamed,
           bin: bin ? CAPTION_BIN_NAME : '',
           sequence: String(seq.name || '')
         });

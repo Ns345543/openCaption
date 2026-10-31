@@ -161,9 +161,13 @@ captions are kept with a warning instead of being lost.
 The panel writes `…\CaptionAI\captions\<sequence>_<timestamp>.srt` and, by default,
 imports it and calls `createCaptionTrack()` so a captions track appears on the
 sequence. Imported SRTs are filed in a bin called **99 openCaption** at the project
-root (created on first use), so they never mix into your own bins. If Premiere
-refuses, the SRT is still on disk — drag it into the Project panel and onto the
-sequence.
+root (created on first use), so they never mix into your own bins. Each caption
+there is numbered `01`, `02`, `03`… in the order you generate it, and the counter
+is per project. On the first run, older SRTs already in the bin are numbered in
+bin order; after that, numbered items keep their numbers and the next run
+continues after the highest one. Other items and bins are left alone. If
+Premiere refuses, the SRT is still on disk — drag it into the Project panel and
+onto the sequence.
 
 ## Settings that matter
 

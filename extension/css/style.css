@@ -1235,21 +1235,21 @@ select {
   background: var(--log-bg);
   border: 1px solid var(--line);
   border-left: 2px solid var(--accent);
-  padding: 10px 12px;
-  font-family: "Segoe UI", "Bahnschrift", system-ui, sans-serif;
-  font-size: 11.5px;
-  line-height: 1.5;
-  color: var(--text);
-  max-height: 300px;
+  padding: 10px 11px;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.65;
+  color: var(--muted);
+  max-height: 200px;
   min-height: 64px;
   overflow-y: auto;
   margin-bottom: 12px;
-  white-space: normal;
+  white-space: pre-wrap;
   word-break: break-word;
   transition: background-color .22s, border-color .22s, color .22s;
 }
 
-.log:empty::before { content: "Ready when you are — press Generate captions."; color: var(--muted-2); }
+.log:empty::before { content: "awaiting input"; color: var(--muted-2); }
 
 .log:empty::after {
   content: "_";
@@ -1264,113 +1264,10 @@ select {
 .log::-webkit-scrollbar-thumb { background: var(--scroll); }
 .log::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 
-/* One entry: badge, message and (optionally) a dim technical line. */
-.log-row { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; }
-
-.log-badge {
-  flex: 0 0 auto;
-  min-width: 42px;
-  margin-top: 1px;
-  padding: 3px 5px 2px;
-  border: 1px solid transparent;
-  font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 8px;
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: 0.08em;
-  text-align: center;
-}
-
-.l-ok .log-badge {
-  background: var(--ok);
-  border-color: var(--ok);
-  color: var(--on-accent);
-}
-
-.l-warn .log-badge {
-  background: transparent;
-  border-color: var(--warn);
-  color: var(--warn);
-}
-
-.l-err .log-badge {
-  background: var(--err);
-  border-color: var(--err);
-  color: var(--on-accent);
-  outline: 1px solid var(--err);
-  outline-offset: 1px;
-}
-
-.log-dot {
-  flex: 0 0 42px;
-  height: 16px;
-  margin-top: 1px;
-  background: radial-gradient(circle at center, var(--muted-2) 0 2.4px, transparent 2.5px);
-}
-
-.log-text { flex: 1 1 auto; min-width: 0; }
-.log-text .log-detail {
-  display: block;
-  margin-top: 2px;
-  font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 9.5px;
-  line-height: 1.45;
-  color: var(--muted-2);
-  overflow-wrap: anywhere;
-}
-
-/* Secondary detail lines are indented so they read as part of the line above. */
-.l-dim { padding-left: 50px; }
-.l-dim .log-text {
-  font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 9.5px;
-  color: var(--muted-2);
-}
-
-/* Numbered phases divide the run into "reading", "transcribing", "saving". */
-.log-phase {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin: 12px 0 3px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
-  color: var(--text);
-}
-.log-phase:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
-
-.log-step {
-  flex: 0 0 auto;
-  margin-top: 1px;
-  padding: 2px 5px 1px;
-  background: var(--accent);
-  color: var(--on-accent);
-  font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  line-height: 1.2;
-}
-
-.log-phase-text { flex: 1 1 auto; min-width: 0; }
-.log-phase-text strong {
-  display: block;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-}
-.log-phase-text span {
-  display: block;
-  margin-top: 1px;
-  font-size: 10px;
-  color: var(--muted-2);
-}
-
-.log-finish { padding-top: 6px; }
-.log-finish .log-text { color: var(--text); font-size: 12px; font-weight: 700; }
-
-.log-gap { height: 8px; }
+.log .l-ok { color: var(--ok); }
+.log .l-warn { color: var(--warn); }
+.log .l-err { color: var(--err); font-weight: 600; }
+.log .l-dim { color: var(--muted-2); }
 
 /* ---------- advanced ---------- */
 

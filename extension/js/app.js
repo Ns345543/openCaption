@@ -17,7 +17,7 @@
   var activeRun = null;
   var cs = new CSInterface();
 
-  var VERSION = '1.5.0';
+  var VERSION = '1.5.1';
 
   function $(id) { return document.getElementById(id); }
 

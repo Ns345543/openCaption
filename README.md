@@ -19,6 +19,38 @@ timeline ──► clip list (ExtendScript)          paths + in/out points + pos
          ──► sequence.createCaptionTrack()     editable caption track in Premiere
 ```
 
+## Screenshots
+
+![The openCaption panel in Premiere Pro](docs/screenshots/01-interface.png)
+
+*The whole panel: API key, caption settings, run controls and the live log.
+Six themes, hard edges, no rounded corners.*
+
+![Caption language and transcription settings](docs/screenshots/02-caption-language.png)
+
+*Caption language is the output language: pick Spanish and any speech — Hindi,
+English, French — is translated into Spanish before the SRT is built.*
+
+![A finished run in the log](docs/screenshots/03-run-log.png)
+
+*Per-chunk timing, the language pass, then the numbered caption filed in
+`99 openCaption`. The log can be copied to the clipboard in one click.*
+
+![The custom theme editor](docs/screenshots/04-themes.png)
+
+*Build your own palette — background, panel, accent and text — with a live
+preview; it becomes an extra swatch on the theme rail.*
+
+![Advanced settings](docs/screenshots/05-advanced.png)
+
+*Advanced: ffmpeg path, chunk length, parallel requests, speech threshold and
+the data/captions folders.*
+
+![The in-panel updater](docs/screenshots/06-updater.png)
+
+*The panel checks GitHub on launch, downloads the new package, verifies its
+SHA-256 and installs it after Premiere closes.*
+
 ## Interface
 
 Hard 90° edges throughout, no rounded corners, and six palettes you can switch
@@ -56,7 +88,7 @@ Two supported routes, both free and per-user (no admin rights):
 
 **A. Windows installer (simplest)**
 
-1. Download `openCaption-1.5.0-windows.zip` and extract it.
+1. Download `openCaption-1.5.1-windows.zip` and extract it.
 2. Close Premiere Pro.
 3. Run `install.bat`.
 
@@ -67,7 +99,7 @@ the saved API key.
 
 **B. ZXP (any CEP extension manager)**
 
-Install `openCaption-1.5.0.zxp` with Anastasiy's Extension Manager, ZXPInstaller or
+Install `openCaption-1.5.1.zxp` with Anastasiy's Extension Manager, ZXPInstaller or
 Adobe `ExManCmd`. This is a **CEP** panel — a UXP-only installer will report
 `manifest.json not found`; use a CEP one instead. The .zxp is signed with a
 self-signed certificate, which CEP loads only when `PlayerDebugMode` is on, so if
@@ -356,6 +388,7 @@ installer/                 the Windows installer shipped to users
   uninstall.bat
   README-FIRST.txt         short instructions for end users
 build.ps1                  package a release (ZXP + Windows zip)
+docs/screenshots/          panel screenshots used by this README
 LICENSE                    MIT, covers the panel
 THIRD-PARTY-NOTICES.txt    ffmpeg GPL notice
 ```

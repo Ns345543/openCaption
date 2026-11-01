@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/branding/opencaption-icon-256.png" width="112" height="112" alt="openCaption icon">
+</p>
+
 # openCaption — auto captions for Premiere Pro (Gemini)
 
 A CEP panel for Premiere Pro that transcribes your timeline audio with the Google
@@ -389,6 +393,7 @@ installer/                 the Windows installer shipped to users
   README-FIRST.txt         short instructions for end users
 build.ps1                  package a release (ZXP + Windows zip)
 docs/screenshots/          panel screenshots used by this README
+docs/branding/             icon (SVG + PNG) and the 1280x640 social preview
 LICENSE                    MIT, covers the panel
 THIRD-PARTY-NOTICES.txt    ffmpeg GPL notice
 ```

@@ -35,10 +35,11 @@ Six themes, hard edges, no rounded corners.*
 *Caption language is the output language: pick Spanish and any speech — Hindi,
 English, French — is translated into Spanish before the SRT is built.*
 
-![A finished run in the log](docs/screenshots/03-run-log.png)
+![The activity log explaining each step](docs/screenshots/03-run-log.png)
 
-*Per-chunk timing, the language pass, then the numbered caption filed in
-`99 openCaption`. The log can be copied to the clipboard in one click.*
+*Runs are split into numbered phases, each step carries a DONE, NOTE or ERROR
+badge, and the technical detail sits dimmed underneath. The log can be copied
+to the clipboard in one click.*
 
 ![The custom theme editor](docs/screenshots/04-themes.png)
 
@@ -64,6 +65,12 @@ accent and text colour, watch the live preview, then save it as an extra swatch.
 Secondary shades, borders and status colours are derived from those four inputs
 so every control stays readable. A saved custom theme is stored in
 `%APPDATA%\CaptionAI\config.json` too, and can be deleted from the same editor.
+
+The activity log under the Generate button explains a run in plain language:
+numbered phases, a **DONE**, **NOTE** or **ERROR** badge on each step, and the
+technical detail (timings, file paths, model names) dimmed underneath. When
+something fails, the last lines say what to try next instead of only printing
+the API error.
 
 | Theme | Look |
 |---|---|
@@ -92,7 +99,7 @@ Two supported routes, both free and per-user (no admin rights):
 
 **A. Windows installer (simplest)**
 
-1. Download `openCaption-1.5.2-windows.zip` and extract it.
+1. Download `openCaption-1.5.3-windows.zip` and extract it.
 2. Close Premiere Pro.
 3. Run `install.bat`.
 
@@ -103,7 +110,7 @@ the saved API key.
 
 **B. ZXP (any CEP extension manager)**
 
-Install `openCaption-1.5.2.zxp` with Anastasiy's Extension Manager, ZXPInstaller or
+Install `openCaption-1.5.3.zxp` with Anastasiy's Extension Manager, ZXPInstaller or
 Adobe `ExManCmd`. This is a **CEP** panel — a UXP-only installer will report
 `manifest.json not found`; use a CEP one instead. The .zxp is signed with a
 self-signed certificate, which CEP loads only when `PlayerDebugMode` is on, so if

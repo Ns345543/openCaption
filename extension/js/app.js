@@ -17,7 +17,7 @@
   var activeRun = null;
   var cs = new CSInterface();
 
-  var VERSION = '1.5.2';
+  var VERSION = '1.5.3';
 
   function $(id) { return document.getElementById(id); }
 
@@ -57,13 +57,101 @@
     if (els.copyLogBtn) els.copyLogBtn.disabled = empty;
   }
 
-  function log(msg, cls) {
-    var line = document.createElement('div');
-    if (cls) line.className = 'l-' + cls;
-    line.textContent = msg;
-    els.log.appendChild(line);
+  var LOG_BADGES = { ok: 'DONE', warn: 'NOTE', err: 'ERROR', info: 'INFO' };
+
+  /**
+   * Append one log entry.
+   *   log('message')                 plain update, marked with a dot
+   *   log('message', 'ok')           finished step, green DONE badge
+   *   log('message', 'warn')         heads-up, amber NOTE badge
+   *   log('message', 'err')          problem, red ERROR badge
+   *   log('technical line', 'dim')   secondary detail, no badge
+   *   log('message', 'ok', detail)   secondary technical detail under the line
+   */
+  function log(msg, cls, detail) {
+    if (msg === '' || msg === null || msg === undefined) {
+      var gap = document.createElement('div');
+      gap.className = 'log-gap';
+      els.log.appendChild(gap);
+      els.log.scrollTop = els.log.scrollHeight;
+      return;
+    }
+
+    var kind = cls || 'info';
+    if (kind !== 'dim' && !LOG_BADGES[kind]) kind = 'info';
+
+    // Older call sites prefix messages with "!", "·" or "…". Drop the marker:
+    // the badge now carries the meaning.
+    var text = String(msg).replace(/^\s*[!·…]\s*/, '').trim();
+    if (!text) return;
+
+    var row = document.createElement('div');
+    row.className = 'log-row l-' + kind;
+
+    if (kind === 'info') {
+      var dot = document.createElement('span');
+      dot.className = 'log-dot';
+      dot.setAttribute('aria-hidden', 'true');
+      row.appendChild(dot);
+    } else if (kind !== 'dim') {
+      var badge = document.createElement('span');
+      badge.className = 'log-badge';
+      badge.textContent = LOG_BADGES[kind];
+      row.appendChild(badge);
+    }
+
+    var body = document.createElement('div');
+    body.className = 'log-text';
+    body.appendChild(document.createTextNode(text));
+    if (detail) {
+      var sub = document.createElement('span');
+      sub.className = 'log-detail';
+      sub.textContent = String(detail);
+      body.appendChild(sub);
+    }
+    row.appendChild(body);
+
+    els.log.appendChild(row);
     els.log.scrollTop = els.log.scrollHeight;
     syncLogButtons();
+  }
+
+  /** A numbered phase heading, e.g. "02 Reading your timeline". */
+  function logPhase(step, title, subtitle) {
+    var row = document.createElement('div');
+    row.className = 'log-phase';
+
+    var num = document.createElement('span');
+    num.className = 'log-step';
+    num.textContent = ('0' + step).slice(-2);
+
+    var body = document.createElement('div');
+    body.className = 'log-phase-text';
+    var heading = document.createElement('strong');
+    heading.textContent = title;
+    body.appendChild(heading);
+    if (subtitle) {
+      var sub = document.createElement('span');
+      sub.textContent = subtitle;
+      body.appendChild(sub);
+    }
+
+    row.appendChild(num);
+    row.appendChild(body);
+    els.log.appendChild(row);
+    els.log.scrollTop = els.log.scrollHeight;
+    syncLogButtons();
+  }
+
+  /** The run summary: a DONE line with a little more weight. */
+  function logFinish(title, detail) {
+    log(title, 'ok', detail);
+    var last = els.log.lastElementChild;
+    if (last) last.classList.add('log-finish');
+  }
+
+  function count(n, noun) {
+    return n + ' ' + noun + (n === 1 ? '' : 's');
   }
 
   function clearLog() {
@@ -75,7 +163,38 @@
   function logText() {
     var out = [];
     for (var i = 0; i < els.log.children.length; i++) {
-      out.push(els.log.children[i].textContent);
+      var el = els.log.children[i];
+
+      if (el.classList.contains('log-gap')) {
+        out.push('');
+        continue;
+      }
+
+      if (el.classList.contains('log-phase')) {
+        var step = el.querySelector('.log-step');
+        var title = el.querySelector('strong');
+        var sub = el.querySelector('.log-phase-text span');
+        out.push('');
+        out.push('[' + (step ? step.textContent : '--') + '] ' + (title ? title.textContent : ''));
+        if (sub) out.push('     ' + sub.textContent);
+        continue;
+      }
+
+      if (!el.classList.contains('log-row')) continue;
+      var badge = el.querySelector('.log-badge');
+      var textEl = el.querySelector('.log-text');
+      if (!textEl) continue;
+
+      var detail = textEl.querySelector('.log-detail');
+      var main = textEl.cloneNode(true);
+      var cloneDetail = main.querySelector('.log-detail');
+      if (cloneDetail) main.removeChild(cloneDetail);
+
+      var prefix = badge ? badge.textContent : '';
+      while (prefix.length < 6) prefix += ' ';
+      var line = prefix + main.textContent.trim();
+      if (detail) line += '  (' + detail.textContent + ')';
+      out.push(line);
     }
     return out.join('\r\n');
   }
@@ -131,10 +250,10 @@
     if (!text) return;
     copyText(text).then(function () {
       flashCopy('copied');
-      log('Log copied to the clipboard.', 'dim');
+      log('Activity log copied. You can paste it into a message.', 'dim');
     }).catch(function (err) {
       flashCopy('failed');
-      log('! Could not copy the log: ' + ((err && err.message) || 'clipboard unavailable'), 'warn');
+      log('The activity log could not be copied.', 'warn', (err && err.message) || 'clipboard unavailable');
     });
   }
 
@@ -203,7 +322,7 @@
   function persist() {
     readForm();
     var res = Config.save(settings);
-    if (!res.ok) log('! Could not save settings: ' + res.error, 'warn');
+    if (!res.ok) log('Settings could not be saved.', 'warn', res.error);
   }
 
   function applyToForm() {
@@ -246,7 +365,7 @@
   function populateModels(ids, silent) {
     var usable = Gemini.audioModels(ids);
     if (!usable.length) {
-      if (!silent) log('! The API returned no usable Gemini models for this key.', 'warn');
+      if (!silent) log('This API key cannot use any Gemini models.', 'warn');
       return;
     }
 
@@ -271,8 +390,8 @@
       els.model.value = pick;
       settings.model = pick;
       if (!silent) {
-        log('Model set to "' + pick + '"' +
-            (previous ? ' — "' + previous + '" is not available to this key.' : '.'), 'warn');
+        log('The saved model is not available to this key.', 'warn',
+            (previous ? previous + ' → ' : '') + 'now using ' + pick);
       }
     }
 
@@ -281,43 +400,45 @@
 
   async function testSelectedModel() {
     var key = els.apiKey.value.trim() || (settings && settings.apiKey) || '';
-    if (!key) { log('! Enter your API key first.', 'warn'); return; }
+    if (!key) { log('Add your Gemini API key first.', 'warn'); return; }
 
     var model = (els.model.value === '__custom')
       ? els.customModel.value.trim()
       : els.model.value;
-    if (!model) { log('! Pick a model first.', 'warn'); return; }
+    if (!model) { log('Choose a model first.', 'warn'); return; }
 
     els.testModel.disabled = true;
     try {
       // Two probes: text proves the key and the model work, audio proves the
       // path that Generate actually uses. A model can pass one and hang on the
       // other, which is exactly the "no response" case this is meant to expose.
-      log('Text probe: sending a few words to "' + model + '"…', 'dim');
+      log('Step 1 of 2: sending a few words to "' + model + '"…', 'info');
       var text = await Gemini.testModel(key, model);
       var tSecs = (text.ms / 1000).toFixed(1);
 
       if (!text.ok) {
-        log('! Text probe failed after ' + tSecs + 's — ' + text.error, 'err');
+        log('The model did not answer a text message.', 'err', 'gave up after ' + tSecs + 's · ' + text.error);
         return;
       }
-      log('Text probe: answered in ' + tSecs + 's ("' + String(text.text || '').slice(0, 30) + '").', 'ok');
+      log('Step 1 passed — the model replied in ' + tSecs + 's.', 'ok',
+          '"' + String(text.text || '').slice(0, 30) + '"');
 
-      log('Audio probe: sending 1.2s of synthetic audio…', 'dim');
+      log('Step 2 of 2: sending 1.2 seconds of test audio…', 'info');
       var audio = await Gemini.testAudio(key, model);
       var aSecs = (audio.ms / 1000).toFixed(1);
 
       if (!audio.ok) {
-        log('! Audio probe failed after ' + aSecs + 's — ' + audio.error, 'err');
-        log('  Text works but audio does not. Pick a flash-lite model: it answered this probe in ~2s.', 'warn');
+        log('The model did not answer the audio test.', 'err', 'gave up after ' + aSecs + 's · ' + audio.error);
+        log('Text worked but audio did not. Pick a flash-lite model — it answered this test in about 2s.', 'warn');
         return;
       }
 
       var fb = (audio.firstByteMs || 0) / 1000;
-      log('Audio probe: ' + aSecs + 's total, first byte at ' + fb.toFixed(1) + 's, ' + audio.cues + ' cue(s).', 'ok');
-      log('Model looks healthy — Generate should work.', 'dim');
+      log('The model handled audio in ' + aSecs + 's and found ' + count(audio.cues, 'caption line') + '.', 'ok',
+          'first response after ' + fb.toFixed(1) + 's');
+      log('This model looks healthy — Generate captions should work.', 'info');
     } catch (e) {
-      log('! ' + e.message, 'err');
+      log('The model test could not finish.', 'err', e.message);
     } finally {
       els.testModel.disabled = false;
     }
@@ -326,7 +447,7 @@
   async function refreshModelList(silent) {
     var key = els.apiKey.value.trim() || (settings && settings.apiKey) || '';
     if (!key) {
-      if (!silent) log('! Enter your API key first.', 'warn');
+      if (!silent) log('Add your Gemini API key first.', 'warn');
       return;
     }
 
@@ -334,13 +455,15 @@
     try {
       var res = await Gemini.validateKey(key);
       if (!res.ok) {
-        if (!silent) log('! ' + res.error, 'err');
+        if (!silent) log('The model list could not be loaded.', 'err', res.error);
         return;
       }
       populateModels(res.models, silent);
-      if (!silent) log('Loaded ' + Gemini.audioModels(res.models).length + ' models from the API.', 'dim');
+      if (!silent) {
+        log('Model list refreshed.', 'ok', Gemini.audioModels(res.models).length + ' models available to this key');
+      }
     } catch (e) {
-      if (!silent) log('! ' + e.message, 'err');
+      if (!silent) log('The model list could not be loaded.', 'err', e.message);
     } finally {
       els.refreshModels.disabled = false;
     }
@@ -353,14 +476,14 @@
     settings.apiKey = key;
     persist();
     setKeyBadge(!!key);
-    if (!key) { log('API key cleared.', 'dim'); return; }
-    log('API key saved locally.', 'ok');
+    if (!key) { log('API key removed from this computer.', 'dim'); return; }
+    log('API key saved on this computer.', 'ok');
     await testKey();
   }
 
   async function testKey() {
     var key = els.apiKey.value.trim();
-    if (!key) { log('! Enter a key first.', 'warn'); return; }
+    if (!key) { log('Add your Gemini API key first.', 'warn'); return; }
     els.testKey.disabled = true;
     els.keyBadge.textContent = 'checking…';
     els.keyBadge.className = 'badge';
@@ -369,17 +492,17 @@
       if (res.ok) {
         els.keyBadge.textContent = 'valid';
         els.keyBadge.className = 'badge ok';
-        log('Key is valid. ' + Gemini.audioModels(res.models).length + ' usable models found.', 'ok');
+        log('Your API key works.', 'ok', Gemini.audioModels(res.models).length + ' models available');
         populateModels(res.models, true);
       } else {
         els.keyBadge.textContent = 'invalid';
         els.keyBadge.className = 'badge err';
-        log('! ' + res.error, 'err');
+        log('This API key was rejected.', 'err', res.error);
       }
     } catch (e) {
       els.keyBadge.textContent = 'error';
       els.keyBadge.className = 'badge err';
-      log('! ' + e.message, 'err');
+      log('The API key could not be checked.', 'err', e.message);
     } finally {
       els.testKey.disabled = false;
     }
@@ -397,14 +520,14 @@
       try { exists = NODE.fs.existsSync(c.path); } catch (e) { exists = false; }
       if (!exists) {
         missing++;
-        warn('Missing media for "' + c.name + '": ' + c.path);
+        warn('The clip "' + c.name + '" is missing from disk.', c.path);
         continue;
       }
       plan.push(c);
     }
 
     if (!plan.length) {
-      throw new Error('None of the clips in this range could be read from disk (' + missing + ' missing file(s)).');
+      throw new Error('None of the clips in this range could be read from disk (' + count(missing, 'missing file') + ').');
     }
     return plan;
   }
@@ -425,7 +548,7 @@
     els.cancel.disabled = true;
     els.cancel.textContent = 'Stopping…';
     progress(parseFloat(els.bar.style.width) || 0, 'stopping…');
-    log('Stopping — closing the open requests…', 'warn');
+    log('Stopping…', 'warn', 'closing the open requests');
   }
 
   async function generate() {
@@ -442,7 +565,7 @@
 
     clearLog();
     resetProgress();
-    progress(0, 'starting…');
+    progress(0, 'getting ready…');
 
     var startedAt = Date.now();
 
@@ -450,34 +573,39 @@
       readForm();
       Config.save(settings);
 
-      if (!settings.apiKey) throw new Error('Add your Gemini API key first (step 1).');
+      logPhase(1, 'Checking your setup', 'API key, audio tools and Premiere');
+
+      if (!settings.apiKey) {
+        throw new Error('Your Gemini API key is missing. Paste it under "API access", then press Save key.');
+      }
 
       var ffmpeg = Audio.resolve(settings.ffmpegPath);
       if (!ffmpeg) {
-        Audio.diagnose(settings.ffmpegPath).forEach(function (line) { log('  ' + line, 'dim'); });
-        throw new Error(Audio.status().error);
+        Audio.diagnose(settings.ffmpegPath).forEach(function (line) { log(line, 'dim'); });
+        throw new Error('The audio tool (ffmpeg) is missing. Run setup-ffmpeg.ps1 once, then press Generate again.');
       }
-      log('ffmpeg: ' + ffmpeg, 'dim');
+      log('Setup is complete.', 'ok', ffmpeg);
 
-      progress(3, 'reading timeline…');
+      progress(3, 'reading your timeline…');
       await Premiere.ensureHost();
       if (token.cancelled) throw cancelledError();
       var info = await Premiere.getSequenceInfo(settings.scope);
       if (token.cancelled) throw cancelledError();
       if (!info.ok) throw new Error(info.error);
 
-      (info.warnings || []).forEach(function (w) { log('! ' + w, 'warn'); });
+      logPhase(2, 'Reading your timeline', 'Finding the clips and the audio to use');
+
+      (info.warnings || []).forEach(function (w) { log(w, 'warn'); });
 
       var seq = info.sequence;
       var rangeStart = seq.rangeStart;
       var rangeEnd = seq.rangeEnd;
       var duration = rangeEnd - rangeStart;
 
-      log('Sequence "' + seq.name + '"  ·  ' + scopeLabel(seq), 'dim');
-      log(fmtTime(rangeStart) + '–' + fmtTime(rangeEnd) + '  ·  ' + info.clips.length +
-          ' audio clip(s)', 'dim');
+      log('Working on sequence "' + seq.name + '"', 'info', scopeLabel(seq) + ' · ' + count(info.clips.length, 'audio clip'));
+      log('Time range: ' + fmtTime(rangeStart) + ' to ' + fmtTime(rangeEnd), 'info');
 
-      var plan = preparePlan(info, function (m) { log('! ' + m, 'warn'); });
+      var plan = preparePlan(info, function (m, d) { log(m, 'warn', d); });
 
       var chunkSec = settings.chunkSec;
       var chunkCount = Math.max(1, Math.ceil(duration / chunkSec));
@@ -489,23 +617,22 @@
       var concurrency = Math.max(1, Math.min(6, Math.round(settings.concurrency || 3)));
       var workerCount = Math.min(concurrency, chunkCount);
 
-      log('Sending ' + chunkCount + ' slice(s) of ~' + chunkSec + 's to ' + settings.model +
-          ' · ' + workerCount + ' in parallel.', 'dim');
+      logPhase(3, 'Transcribing with Gemini', count(chunkCount, 'part') + ' of about ' + chunkSec + ' seconds each');
       if (settings.language === 'auto') {
-        log('Caption language: spoken language (auto-detect).', 'dim');
+        log('Caption language: the spoken language, detected automatically.', 'info');
       } else if (settings.language === 'Hinglish') {
-        log('Caption language: Hinglish (Roman script).', 'dim');
+        log('Caption language: Hinglish, written in Roman letters.', 'info');
       } else {
-        log('Caption language: ' + settings.language +
-            ' (speech in another language is translated).', 'dim');
+        log('Caption language: ' + settings.language + ' — speech in other languages is translated.', 'info');
       }
+      log('Model: ' + settings.model + ' · ' + count(workerCount, 'part') + ' at a time.', 'dim');
 
       if (/transcribe/i.test(settings.model)) {
-        log('  ' + settings.model + ' returns a timestamp for every word, so pauses stay gaps.', 'dim');
+        log('This model reports when every word is spoken, so pauses stay as gaps in the captions.', 'dim');
         if (settings.language !== 'auto') {
           log(settings.language === 'Hinglish'
-            ? '  Its spoken-language output is rewritten in Roman Hinglish afterwards.'
-            : '  Its spoken-language output is translated to ' + settings.language + ' afterwards.', 'dim');
+            ? 'Its output is rewritten in Roman Hinglish afterwards.'
+            : 'Its output is translated to ' + settings.language + ' afterwards.', 'dim');
         }
       }
 
@@ -516,19 +643,20 @@
         var t1 = Math.min(rangeEnd, t0 + chunkSec);
         if (t1 - t0 < 0.4) return;
 
-        var label = 'slice ' + (i + 1) + '/' + chunkCount;
-        progress(5 + (completed / chunkCount) * 90, label + ' — extracting…');
+        var label = 'part ' + (i + 1) + ' of ' + chunkCount;
+        progress(5 + (completed / chunkCount) * 90, label + ' — getting the audio…');
 
-        var pcm = Audio.renderChunk(plan, t0, t1, function (w) { log('! ' + w, 'warn'); });
+        var pcm = Audio.renderChunk(plan, t0, t1, function (w) { log(w, 'warn'); });
         if (token.cancelled) return;
         if (Audio.peak(pcm) < 0.004) {
-          log('· ' + fmtTime(t0) + '–' + fmtTime(t1) + '  silence, skipped', 'dim');
+          log(label.charAt(0).toUpperCase() + label.slice(1) + ' has no speech — skipped.', 'dim',
+            fmtTime(t0) + ' to ' + fmtTime(t1));
           return;
         }
 
         var wavFile = Audio.tempFile('slice_' + ('000' + i).slice(-4) + '.wav');
         Audio.writeWavFile(pcm, wavFile);
-        progress(5 + (completed / chunkCount) * 90, label + ' — transcribing…');
+        progress(5 + (completed / chunkCount) * 90, label + ' — listening…');
 
         /* Measure where speech actually is before the model's phrase times are
            used. Captions and word edges get pinned to these spans, which is
@@ -548,10 +676,11 @@
             maxLines: settings.maxLines,
             token: token,
             onRetry: function (attempt, msg) {
-              log('… ' + label + ' retry ' + attempt + ': ' + msg, 'warn');
+              log('Part ' + (i + 1) + ' of ' + chunkCount + ' took longer than expected — retrying (attempt ' +
+                attempt + ').', 'warn', msg);
             },
             onNote: function (msg) {
-              log('! ' + label + ' ' + msg, 'warn');
+              log('Gemini sent a note while working on part ' + (i + 1) + ' of ' + chunkCount + '.', 'warn', msg);
             }
           });
 
@@ -573,10 +702,12 @@
 
           if (!modelCues.length) {
             if ((res.raw || '').trim()) {
-              log('! ' + fmtTime(t0) + '–' + fmtTime(t1) +
-                  '  model replied without cue JSON: ' + res.raw.trim().slice(0, 120), 'warn');
+              log('Part ' + (i + 1) + ' of ' + chunkCount +
+                  ' came back in an unexpected format and was skipped.', 'warn',
+                  'Model reply: ' + res.raw.trim().slice(0, 120));
             } else {
-              log('· ' + fmtTime(t0) + '–' + fmtTime(t1) + '  no speech', 'dim');
+              log('Part ' + (i + 1) + ' of ' + chunkCount + ' has no speech — skipped.', 'dim',
+                  fmtTime(t0) + ' to ' + fmtTime(t1));
             }
             return;
           }
@@ -627,12 +758,11 @@
             });
           }
 
-          var first = (res.firstByteMs === null || res.firstByteMs === undefined)
-            ? ''
-            : ' · first byte ' + (res.firstByteMs / 1000).toFixed(1) + 's';
-          log('· ' + fmtTime(t0) + '–' + fmtTime(t1) + '  ' + local.length + ' cue(s)' +
-              (fromWords ? ' · word timings' : fromTranscript ? ' · text timed from waveform' : '') + '  (' +
-              ((res.ms || 0) / 1000).toFixed(1) + 's' + first + ')', 'ok');
+          var detail = fmtTime(t0) + ' to ' + fmtTime(t1) + ' · ' +
+            ((res.ms || 0) / 1000).toFixed(1) + 's';
+          if (fromWords) detail += ' · word-level timing';
+          else if (fromTranscript) detail += ' · timing matched to the audio';
+          log('Part ' + (i + 1) + ' of ' + chunkCount + ' finished — ' + count(local.length, 'caption line') + '.', 'ok', detail);
         } finally {
           Audio.cleanup(wavFile);
         }
@@ -657,7 +787,8 @@
               if (e && e.cancelled) { fatal = e; break; }
               var message = (e && e.message) ? e.message : String(e);
               failures.push(message);
-              log('! ' + fmtTime(rangeStart + idx * chunkSec) + '  slice failed: ' + message, 'err');
+              log('Part ' + (idx + 1) + ' of ' + chunkCount + ' could not be transcribed.', 'err',
+                fmtTime(rangeStart + idx * chunkSec) + ' · ' + message);
               if (/no output|produced no output/i.test(message)) fatal = message;
               /* Every slice will hit the same cap; stop the queue instead of
                  failing the rest one by one. */
@@ -665,7 +796,7 @@
             }
             completed++;
             progress(5 + (completed / chunkCount) * 90,
-                     'completed ' + completed + '/' + chunkCount);
+                     'finished ' + completed + ' of ' + chunkCount + ' parts');
           }
         })());
       }
@@ -679,14 +810,17 @@
       }
 
       if (!collected.length) {
-        if (failures.length) throw new Error('Every slice failed. First error: ' + failures[0]);
-        throw new Error('No speech was transcribed. Check the audio tracks are audible and not muted.');
+        if (failures.length) throw new Error('None of the audio could be transcribed. First error: ' + failures[0]);
+        throw new Error('No speech was found in the selected range. Check that the audio tracks are not muted, then try again.');
       }
       if (failures.length) {
-        log('! ' + failures.length + ' slice(s) failed and were skipped.', 'warn');
+        log('Some parts could not be transcribed and were skipped.', 'warn',
+            count(failures.length, 'failed part'));
       }
 
       if (token.cancelled) throw cancelledError();
+
+      logPhase(4, 'Building captions', 'Cleaning up the lines and their timing');
 
       /* Slices finish in parallel, so `collected` is in completion order rather
          than time order. Both rewrites below read neighbouring lines as context,
@@ -701,7 +835,7 @@
          Roman letters before they become captions. */
       if (settings.language === 'Hinglish' &&
           orderedCues.some(function (c) { return Roman.hasDevanagari(c.text); })) {
-        progress(94, 'converting to Roman Hinglish…');
+        progress(94, 'writing Hinglish in Roman letters…');
         var roman = await Roman.convert(orderedCues.map(function (c) { return c.text; }), {
           apiKey: settings.apiKey,
           model: Roman.pickModel(settings.model),
@@ -709,9 +843,10 @@
         });
         for (var rc = 0; rc < orderedCues.length; rc++) orderedCues[rc].text = roman.lines[rc];
         if (roman.error) {
-          log('! Roman conversion fell back to the built-in transliterator: ' + roman.error, 'warn');
+          log('Hinglish was converted with the built-in method instead.', 'warn', roman.error);
         } else if (roman.model) {
-          log('Rewrote ' + orderedCues.length + ' cue(s) in Roman Hinglish via ' + roman.model + '.', 'dim');
+          log('Captions written in Roman Hinglish.', 'ok',
+            count(orderedCues.length, 'line') + ' · ' + roman.model);
         }
         if (token.cancelled) throw cancelledError();
       }
@@ -728,11 +863,12 @@
           (canTranslate && Translate.needsFix(settings.language, captionTexts));
 
         if (mustTranslate && !canTranslate) {
-          log('! Translation to ' + settings.language + ' is unavailable (' +
-              ((typeof Translate !== 'undefined' && Translate.error) || 'module not loaded') + ').', 'err');
+          log('The captions could not be translated to ' + settings.language + '.', 'err',
+            (typeof Translate !== 'undefined' && Translate.error) || 'translation is not available');
+          log('They stay in the spoken language. Try again, or pick a general model.', 'dim');
         } else if (mustTranslate) {
           progress(95, 'translating to ' + settings.language + '…');
-          log('Translating ' + captionTexts.length + ' cue(s) to ' + settings.language + '…', 'dim');
+          log('Translating ' + count(captionTexts.length, 'caption line') + ' to ' + settings.language + '…', 'info');
           var translated = await Translate.convert(settings.language, captionTexts, {
             apiKey: settings.apiKey,
             model: Translate.pickModel(settings.model),
@@ -740,11 +876,12 @@
           });
           if (token.cancelled) throw cancelledError();
           if (translated.error) {
-            log('! Could not translate to ' + settings.language + ': ' + translated.error, 'err');
-            log('  The captions are still in the spoken language. Try again, or pick a general model.', 'warn');
+            log('The captions could not be translated to ' + settings.language + '.', 'err', translated.error);
+            log('They stay in the spoken language. Try again, or pick a general model.', 'dim');
           } else {
             for (var tc = 0; tc < orderedCues.length; tc++) orderedCues[tc].text = translated.lines[tc];
-            log('Translated to ' + settings.language + ' with ' + translated.model + '.', 'dim');
+            log('Captions translated to ' + settings.language + '.', 'ok',
+              count(orderedCues.length, 'line') + ' · ' + translated.model);
           }
         }
       }
@@ -756,6 +893,9 @@
         totalDuration: rangeEnd
       });
       var srtText = Srt.build(finalCues);
+      log('Caption timing and line breaks are set.', 'ok', count(finalCues.length, 'caption line'));
+
+      logPhase(5, 'Saving your captions', 'Writing the file and adding the caption track');
 
       var fileName = Config.sanitizeName(seq.name) + '_' + Config.timestamp() + '.srt';
       var srtPath = NODE.path.join(Config.CAPTION_DIR, fileName);
@@ -763,51 +903,73 @@
 
       if (token.cancelled) throw cancelledError();
 
-      log('Wrote ' + finalCues.length + ' cues to ' + srtPath, 'ok');
+      log('Caption file saved.', 'ok', fileName);
+
+      var imported = false;
 
       if (settings.autoImport && !token.cancelled) {
         progress(99, 'importing caption track…');
         var imp = await Premiere.importCaptions(srtPath);
         if (!imp.ok) {
-          log('! Could not create the caption track: ' + imp.error, 'warn');
-          log('  The SRT is still on disk — drag it into the project panel, or use File > Import.', 'dim');
+          log('The caption track could not be added automatically.', 'warn', imp.error);
+          log('The .srt file is saved. Drag it into the Project panel, or use File > Import.', 'dim');
         } else if (imp.created) {
+          imported = true;
           if (imp.numbered) {
-            log('Caption "' + imp.item + '" created on "' + imp.sequence + '"; filed in "' +
-                (imp.bin || '99 openCaption') + '".', 'ok');
+            log('Caption track added to "' + imp.sequence + '".', 'ok',
+              'Filed in "' + (imp.bin || '99 openCaption') + '" as "' + imp.item + '"');
           } else {
-            log('Caption track created on "' + imp.sequence + '"; SRT "' + imp.item +
-                '" filed in "' + (imp.bin || '99 openCaption') + '".', 'ok');
-            log('  This Premiere build did not accept the 01/02 item name; rename it in the Project panel if you want it numbered.', 'dim');
+            log('Caption track added to "' + imp.sequence + '".', 'ok',
+              'SRT "' + imp.item + '" filed in "' + (imp.bin || '99 openCaption') + '"');
+            log('This Premiere build did not accept the numbered item name; rename it in the Project panel if you want it numbered.', 'dim');
           }
         } else {
-          log('! Premiere imported the file but did not report a caption track. Drag the SRT onto the sequence.', 'warn');
+          log('Premiere imported the file but did not add a caption track.', 'warn', 'Drag the .srt onto the sequence.');
         }
       }
 
       var seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
-      progress(100, 'done — ' + finalCues.length + ' cues in ' + seconds + 's');
+      progress(100, 'done — ' + count(finalCues.length, 'caption') + ' in ' + seconds + 's');
       log('');
-      log('Done. ' + finalCues.length + ' cues' + (tokens ? ' · ' + tokens.toLocaleString() + ' tokens' : '') +
-          ' · ' + seconds + 's', 'ok');
+      logFinish(count(finalCues.length, 'caption') + (finalCues.length === 1 ? ' is' : ' are') +
+        ' ready in ' + seconds + 's.',
+        tokens ? tokens.toLocaleString() + ' tokens used' : '');
+      if (imported) {
+        log('They are on your timeline as an editable caption track.', 'info');
+      }
 
       els.lastSrtPath = srtPath;
     } catch (e) {
       if (e && e.cancelled) {
         progress(0, 'stopped');
         log('');
-        log('Stopped by you. Partial captions were discarded — nothing was written or imported.', 'warn');
+        log('Stopped at your request.', 'warn', 'Nothing was saved and no captions were added.');
         els.lastSrtPath = '';
       } else {
         progress(0, 'failed');
         log('');
         var message = (e && e.message) ? e.message : String(e);
-        log('Stopped: ' + message, 'err');
+        log('Captions were not created.', 'err', message);
+
+        var advised = false;
         if (/NOT_FOUND|no longer available|not found for API version|not supported/i.test(message)) {
-          log('  Press "refresh" next to Model — the API will report which models this key can use.', 'warn');
+          log('Next step: press refresh next to Model, then choose one from the list.', 'info');
+          advised = true;
         }
         if (/produced no output|no output for/i.test(message)) {
-          log('  The key and network are fine; this model just never answers. Press "test", then pick a flash-lite model — they answer in ~2s.', 'warn');
+          log('Next step: press Test, then pick a flash-lite model — they answer in about 2 seconds.', 'info');
+          advised = true;
+        }
+        if (/quota|rate limit|resource[ _]exhausted/i.test(message)) {
+          log('Next step: the API quota is used up. Wait a while, or use another key.', 'info');
+          advised = true;
+        }
+        if (/network|ENOTFOUND|ETIMEDOUT|ECONNRESET|offline|socket/i.test(message)) {
+          log('Next step: check your internet connection, then try again.', 'info');
+          advised = true;
+        }
+        if (!advised) {
+          log('Next step: read the message above and try again. If it repeats, press Test next to Model.', 'info');
         }
       }
     } finally {
@@ -832,7 +994,7 @@
                   : 'xdg-open';
       NODE.child_process.spawn(command, [dir], { detached: true, stdio: 'ignore' }).unref();
     } catch (e) {
-      log('! Could not open folder: ' + e.message, 'warn');
+      log('The folder could not be opened.', 'warn', e.message);
     }
   }
 
@@ -856,11 +1018,11 @@
   function resolveAndReport() {
     var p = Audio.resolve(settings.ffmpegPath);
     if (p) {
-      log('ffmpeg ready: ' + p, 'ok');
+      log('Audio tools are ready.', 'ok', p);
       return true;
     }
-    log('! ' + Audio.status().error, 'warn');
-    Audio.diagnose(settings.ffmpegPath).forEach(function (line) { log('  ' + line, 'dim'); });
+    log('The audio tool (ffmpeg) was not found.', 'warn', Audio.status().error);
+    Audio.diagnose(settings.ffmpegPath).forEach(function (line) { log(line, 'dim'); });
     return false;
   }
 
@@ -959,7 +1121,7 @@
   function saveCustomTheme() {
     var colors = readThemeColors();
     if (!colors) {
-      log('! Theme colours must be #rrggbb hex values.', 'warn');
+      log('One of the theme colours is not a valid hex value.', 'warn', 'use the format #rrggbb');
       return;
     }
     colors.name = els.customThemeName.value;
@@ -969,7 +1131,7 @@
     settings.theme = 'custom';
     persist();
     closeThemeEditor();
-    log('Custom theme "' + saved.name + '" applied.', 'dim');
+    log('Custom theme applied.', 'dim', saved.name);
   }
 
   function deleteCustomTheme() {
@@ -1024,7 +1186,7 @@
       els.updateNow.textContent = 'Open download';
       updateSub('Automatic install is unavailable: ' + (res.canSelfUpdate.reason || 'unknown reason') +
         ' This button opens the release page.');
-      log('Automatic update unavailable: ' + res.canSelfUpdate.reason, 'dim');
+      log('Automatic install is not available here.', 'dim', res.canSelfUpdate.reason);
     }
 
     els.updateBar.classList.remove('hidden');
@@ -1040,7 +1202,7 @@
       els.updateNow.textContent = 'Retry';
       els.updateMeter.classList.add('hidden');
       updateSub(reason);
-      log('! ' + reason, 'err');
+      log('The update could not start.', 'err', reason);
       return;
     }
 
@@ -1050,7 +1212,7 @@
     els.updateNow.textContent = 'Waiting';
     els.updateTitle.textContent = 'Update ready — v' + prep.version;
     updateSub('Close Premiere Pro to finish installing. It will reopen automatically. Your API key and settings are kept.');
-    log('Update v' + prep.version + ' is downloaded and verified. Close Premiere Pro to install it.', 'ok');
+    log('Update v' + prep.version + ' is downloaded and verified.', 'ok', 'close Premiere Pro to install it');
   }
 
   function onUpdateNow() {
@@ -1061,10 +1223,10 @@
       var url = Updater.openReleasePage(res.latest);
       var opened = cs.openURLInDefaultBrowser(url);
       if (opened) {
-        log('Opened the release page: ' + url, 'dim');
+        log('Opened the release page in your browser.', 'dim', url);
       } else {
         updateSub('Could not open a browser. Download it from ' + url);
-        log('! Could not open a browser. Release page: ' + url, 'warn');
+        log('A browser could not be opened.', 'warn', 'download from ' + url);
       }
       return;
     }
@@ -1101,44 +1263,46 @@
       els.updateNotesToggle.disabled = false;
       els.updateMeter.classList.add('hidden');
       updateSub(message);
-      log('! Update failed: ' + message, 'err');
-      log('You can install it manually from ' + Updater.openReleasePage(res.latest), 'dim');
+      log('The update failed.', 'err', message);
+      log('You can install it by hand from the release page.', 'dim', Updater.openReleasePage(res.latest));
     });
   }
 
   function manualUpdateCheck() {
     if (updateBusy || updateLaunched) return;
     if (typeof Updater === 'undefined' || !Updater.ok) {
-      log('! ' + ((typeof Updater !== 'undefined' && Updater.error) || 'Updates are unavailable.'), 'warn');
+      log('Updates are unavailable.', 'warn',
+          (typeof Updater !== 'undefined' && Updater.error) || 'the updater did not load');
       return;
     }
 
-    log('Checking GitHub for a newer release…', 'dim');
+    log('Checking GitHub for a newer version…', 'info');
     Updater.check(VERSION, true).then(function (res) {
       if (!res || !res.ok) {
-        log('! Update check failed: ' + ((res && res.error) || 'unknown error'), 'warn');
+        log('GitHub could not be checked for updates.', 'warn', (res && res.error) || 'unknown error');
         return;
       }
       if (res.updateAvailable) {
         showUpdate(res);
-        log('Update available: v' + res.latest.version + '.', 'ok');
+        log('A newer version is available: v' + res.latest.version + '.', 'ok', 'use the update banner to install it');
       } else if (res.stale) {
         els.updateBar.classList.add('hidden');
         pendingUpdate = null;
-        log('Could not reach GitHub (' + (res.error || 'offline') + '). Last known release: v' + ((res.latest && res.latest.version) || 'unknown') + '.', 'warn');
+        log('GitHub could not be reached.', 'warn',
+            'last known release: v' + ((res.latest && res.latest.version) || 'unknown'));
       } else {
         els.updateBar.classList.add('hidden');
         pendingUpdate = null;
-        log('openCaption v' + VERSION + ' is up to date.', 'dim');
+        log('openCaption v' + VERSION + ' is up to date.', 'ok');
       }
     }).catch(function (e) {
-      log('! Update check failed: ' + e.message, 'warn');
+      log('GitHub could not be checked for updates.', 'warn', e.message);
     });
   }
 
   function initUpdater() {
     if (typeof Updater === 'undefined' || !Updater.ok) {
-      if (typeof Updater !== 'undefined' && Updater.error) log('! ' + Updater.error, 'warn');
+      if (typeof Updater !== 'undefined' && Updater.error) log('Updates are unavailable.', 'warn', Updater.error);
       return;
     }
 
@@ -1148,7 +1312,7 @@
       if (result.status === 'ok') {
         log('Updated to openCaption v' + result.version + '.', 'ok');
       } else if (result.status === 'error') {
-        log('! The last update did not install: ' + result.message, 'err');
+        log('The last update did not install.', 'err', result.message);
       } else if (result.status === 'timeout') {
         log('The last update was not installed because Premiere stayed open.', 'warn');
       }
@@ -1157,17 +1321,17 @@
     // Startup checks are silent: an offline machine should not see errors.
     var cap = Updater.capability();
     if (cap && cap.ok) {
-      if (cap.fallback) log('The system copy is read-only; updates go to ' + cap.root + ' instead.', 'dim');
-      else if (cap.link) log('Updating the panel behind the link at ' + cap.root + '.', 'dim');
+      if (cap.fallback) log('This copy of the panel is read-only; updates go to a writable folder.', 'dim', cap.root);
+      else if (cap.link) log('The panel is installed through a shortcut; updates follow it.', 'dim', cap.root);
     } else if (cap && cap.reason) {
-      log('Automatic update unavailable: ' + cap.reason, 'dim');
+      log('Automatic install is not available here.', 'dim', cap.reason);
     }
 
     Updater.check(VERSION).then(function (res) {
       if (!res || !res.ok || !res.updateAvailable) return;
       if (updateDismissed || updateLaunched) return;
       showUpdate(res);
-      log('Update available: v' + res.latest.version + '. Use "Update now" or install it later.', 'ok');
+      log('A newer version is available: v' + res.latest.version + '.', 'ok', 'use the update banner to install it');
     }).catch(function () { /* silent at startup */ });
   }
 
@@ -1303,7 +1467,7 @@
 
     if (!Config.ok) {
       els.generate.disabled = true;
-      log('! ' + Config.error, 'err');
+      log('openCaption could not load its settings folder.', 'err', Config.error);
       return;
     }
 
@@ -1318,15 +1482,15 @@
     });
     bind();
 
-    log('Ready. Open a sequence, then press Generate.', 'dim');
+    log('openCaption is ready.', 'dim', 'open a sequence, then press Generate captions');
 
     /* On a fresh install the two things that can stop a run are the key and
        the audio helper; say so now instead of failing on the first click. */
     if (!settings.apiKey) {
-      log('No API key yet — paste one in "01 · API access" and press Save key.', 'warn');
+      log('No API key yet.', 'warn', 'paste one in "01 · API access" and press Save key');
     }
     if (!Audio.resolve(settings.ffmpegPath)) {
-      log('! ffmpeg was not found. Reinstall, or pick an ffmpeg.exe under Advanced.', 'warn');
+      log('The audio tool (ffmpeg) was not found.', 'warn', 'reinstall openCaption, or choose ffmpeg.exe under Advanced');
     }
 
     initUpdater();
@@ -1337,7 +1501,7 @@
 
     Premiere.ensureHost().then(function (loaded) {
       if (!loaded) {
-        log('! Could not auto-load host.jsx. If commands fail, restart Premiere once.', 'warn');
+        log('Premiere did not finish connecting.', 'warn', 'if commands fail, restart Premiere once');
       }
       return Premiere.ping();
     }).then(function (res) {
@@ -1347,11 +1511,11 @@
         if (!res.sequence) log('No active sequence yet — open one before generating.', 'dim');
       } else {
         els.hostInfo.textContent = 'not connected';
-        log('! ' + (res && res.error ? res.error : 'Could not reach Premiere.'), 'err');
+        log('Premiere could not be reached.', 'err', (res && res.error) || 'no response');
       }
     }).catch(function (e) {
       els.hostInfo.textContent = 'not connected';
-      log('! ' + e.message, 'err');
+      log('Premiere could not be reached.', 'err', e.message);
     });
 
     resolveAndReport();

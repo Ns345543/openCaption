@@ -400,18 +400,29 @@ var Updater = (function () {
 
   function extensionRoots() {
     var roots = [];
+
+    // The panel's own URL is the most trustworthy source: it is the folder
+    // Premiere actually loaded, even if several copies are installed.
+    try {
+      if (typeof window !== 'undefined' && window.location && window.location.href) {
+        var href = decodeURIComponent(window.location.href.split('?')[0].split('#')[0]);
+        var m = href.match(/^file:\/\/\/(.+)\/index\.html?$/i);
+        if (m) roots.push(path.resolve(m[1]));
+      }
+    } catch (e0) { /* ignore */ }
+
     try {
       if (typeof __dirname === 'string' && __dirname) {
         roots.push(path.resolve(__dirname, '..'));
       }
-    } catch (e0) { /* ignore */ }
+    } catch (e1) { /* ignore */ }
 
     try {
       if (window.__adobe_cep__ && window.__adobe_cep__.getSystemPath) {
         var viaCep = window.__adobe_cep__.getSystemPath('extension');
         if (viaCep) roots.push(viaCep);
       }
-    } catch (e1) { /* ignore */ }
+    } catch (e2) { /* ignore */ }
 
     var unique = [];
     for (var i = 0; i < roots.length; i++) {
@@ -444,6 +455,27 @@ var Updater = (function () {
 
   var capabilityCache = null;
 
+  /** Junction and symlink installs are normal here (install.ps1 creates one). */
+  function resolveLink(dir) {
+    try {
+      var real = fs.realpathSync(dir);
+      return real ? path.resolve(real) : dir;
+    } catch (e) {
+      return dir;
+    }
+  }
+
+  function canWrite(dir) {
+    var probe = path.join(dir, '.opencaption-write-test-' + Date.now());
+    try {
+      fs.writeFileSync(probe, 'ok');
+      fs.unlinkSync(probe);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function capability() {
     if (capabilityCache) return capabilityCache;
 
@@ -457,8 +489,12 @@ var Updater = (function () {
       return no('Automatic updates are only available on Windows.');
     }
 
-    var root = extensionRoot();
-    if (!root) return no('The installed extension folder could not be located.');
+    var detected = extensionRoot();
+    if (!detected) return no('The installed extension folder could not be located.');
+
+    // The normal installer links the panel with a junction, so update the real
+    // folder behind it instead of refusing to touch a "development copy".
+    var root = resolveLink(detected);
 
     try {
       if (!fs.existsSync(path.join(root, 'CSXS', 'manifest.xml'))) {
@@ -468,25 +504,36 @@ var Updater = (function () {
       return no('The installed extension folder could not be read.');
     }
 
+    if (canWrite(root)) {
+      capabilityCache = {
+        ok: true,
+        root: root,
+        detected: detected,
+        link: root !== detected,
+        powershell: powershellPath()
+      };
+      return capabilityCache;
+    }
+
+    // A system-wide install under Program Files cannot be written without
+    // admin rights. Premiere also loads the per-user CEP folder, so install
+    // there instead and leave the old copy untouched.
     try {
-      var item = fs.lstatSync(root);
-      if (item.isSymbolicLink()) {
-        return no('This is a development copy (junction), so it is updated by hand.');
+      var cepRoot = path.join(NODE.appData, 'Adobe', 'CEP', 'extensions');
+      var userRoot = path.join(cepRoot, path.basename(root));
+      if (fs.existsSync(cepRoot) && canWrite(cepRoot)) {
+        capabilityCache = {
+          ok: true,
+          root: userRoot,
+          detected: detected,
+          fallback: true,
+          powershell: powershellPath()
+        };
+        return capabilityCache;
       }
-    } catch (e2) {
-      return no('The installed extension folder could not be read.');
-    }
+    } catch (e2) { /* fall through to the reason below */ }
 
-    var probe = path.join(root, '.opencaption-update-test');
-    try {
-      fs.writeFileSync(probe, 'ok');
-      fs.unlinkSync(probe);
-    } catch (e3) {
-      return no('The installed folder is not writable (usually because it is under Program Files). Install the release once from the download page.');
-    }
-
-    capabilityCache = { ok: true, root: root, powershell: powershellPath() };
-    return capabilityCache;
+    return no('The installed folder is not writable (usually because it is under Program Files). Install the release once from the download page.');
   }
 
   function findExtensionRoot(dir, depth) {
@@ -807,7 +854,15 @@ var Updater = (function () {
       '  if ($targetExists) {',
       '    $item = Get-Item -LiteralPath $Target -Force',
       '    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {',
-      '      throw "The installed panel is a junction; install the release manually."',
+      '      $real = $item.Target',
+      '      if ($real -is [array]) { $real = $real[0] }',
+      '      if ($real -and (Test-Path -LiteralPath $real)) {',
+      '        Write-Log "Target is a junction; updating its target $real"',
+      '        $Target = $real',
+      '        $targetExists = Test-Path -LiteralPath $Target',
+      '      } else {',
+      '        throw "The installed panel is a junction with no reachable target; install the release manually."',
+      '      }',
       '    }',
       '  }',
       '',
@@ -944,7 +999,8 @@ var Updater = (function () {
   }
 
   function openReleasePage(release) {
-    return (release && release.htmlUrl) ? release.htmlUrl : RELEASES_URL;
+    var url = (release && release.htmlUrl) ? String(release.htmlUrl) : RELEASES_URL;
+    return /^https?:\/\//i.test(url) ? url : RELEASES_URL;
   }
 
   return {

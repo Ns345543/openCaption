@@ -17,7 +17,7 @@
   var activeRun = null;
   var cs = new CSInterface();
 
-  var VERSION = '1.5.1';
+  var VERSION = '1.5.2';
 
   function $(id) { return document.getElementById(id); }
 
@@ -1022,7 +1022,8 @@
 
     if (res.canSelfUpdate && !res.canSelfUpdate.ok) {
       els.updateNow.textContent = 'Open download';
-      updateSub('Automatic install is unavailable here. This button opens the release page.');
+      updateSub('Automatic install is unavailable: ' + (res.canSelfUpdate.reason || 'unknown reason') +
+        ' This button opens the release page.');
       log('Automatic update unavailable: ' + res.canSelfUpdate.reason, 'dim');
     }
 
@@ -1057,8 +1058,14 @@
     var res = pendingUpdate;
 
     if (!res.canSelfUpdate || !res.canSelfUpdate.ok) {
-      cs.openURLInDefaultBrowser(Updater.openReleasePage(res.latest));
-      log('Opening the release page for v' + ((res.latest && res.latest.version) || '') + '.', 'dim');
+      var url = Updater.openReleasePage(res.latest);
+      var opened = cs.openURLInDefaultBrowser(url);
+      if (opened) {
+        log('Opened the release page: ' + url, 'dim');
+      } else {
+        updateSub('Could not open a browser. Download it from ' + url);
+        log('! Could not open a browser. Release page: ' + url, 'warn');
+      }
       return;
     }
 
@@ -1148,6 +1155,14 @@
     }
 
     // Startup checks are silent: an offline machine should not see errors.
+    var cap = Updater.capability();
+    if (cap && cap.ok) {
+      if (cap.fallback) log('The system copy is read-only; updates go to ' + cap.root + ' instead.', 'dim');
+      else if (cap.link) log('Updating the panel behind the link at ' + cap.root + '.', 'dim');
+    } else if (cap && cap.reason) {
+      log('Automatic update unavailable: ' + cap.reason, 'dim');
+    }
+
     Updater.check(VERSION).then(function (res) {
       if (!res || !res.ok || !res.updateAvailable) return;
       if (updateDismissed || updateLaunched) return;

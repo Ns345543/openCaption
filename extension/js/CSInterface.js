@@ -40,12 +40,41 @@ CSInterface.prototype.getOSInformation = function () {
   return window.__adobe_cep__.getOSInformation();
 };
 
+/**
+ * Opens an http(s) URL in the system browser. CEP 12 removed or moved some of
+ * the older entry points, and window.open() inside a panel can silently do
+ * nothing, so try every route and report whether one was started.
+ */
 CSInterface.prototype.openURLInDefaultBrowser = function (url) {
-  if (typeof window.cep !== 'undefined' && window.cep.util) {
-    window.cep.util.openURLInDefaultBrowser(url);
-  } else {
-    window.open(url);
-  }
+  url = String(url || '');
+  if (!/^https?:\/\//i.test(url)) return false;
+
+  try {
+    if (window.cep && window.cep.util && typeof window.cep.util.openURLInDefaultBrowser === 'function') {
+      window.cep.util.openURLInDefaultBrowser(url);
+      return true;
+    }
+  } catch (e) { /* try the next route */ }
+
+  // Node is enabled for this panel (see manifest), so hand the URL to the shell.
+  try {
+    if (typeof NODE !== 'undefined' && NODE.ok && NODE.child_process) {
+      var child = NODE.child_process.spawn('cmd.exe', ['/c', 'start', '""', url], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true
+      });
+      child.unref();
+      return true;
+    }
+  } catch (e2) { /* try the next route */ }
+
+  try {
+    window.open(url, '_blank');
+    return true;
+  } catch (e3) { /* nothing else to try */ }
+
+  return false;
 };
 
 /** Opens a native file dialog. Returns null when cancelled. */

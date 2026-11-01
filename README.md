@@ -88,7 +88,7 @@ Two supported routes, both free and per-user (no admin rights):
 
 **A. Windows installer (simplest)**
 
-1. Download `openCaption-1.5.1-windows.zip` and extract it.
+1. Download `openCaption-1.5.2-windows.zip` and extract it.
 2. Close Premiere Pro.
 3. Run `install.bat`.
 
@@ -99,7 +99,7 @@ the saved API key.
 
 **B. ZXP (any CEP extension manager)**
 
-Install `openCaption-1.5.1.zxp` with Anastasiy's Extension Manager, ZXPInstaller or
+Install `openCaption-1.5.2.zxp` with Anastasiy's Extension Manager, ZXPInstaller or
 Adobe `ExManCmd`. This is a **CEP** panel — a UXP-only installer will report
 `manifest.json not found`; use a CEP one instead. The .zxp is signed with a
 self-signed certificate, which CEP loads only when `PlayerDebugMode` is on, so if

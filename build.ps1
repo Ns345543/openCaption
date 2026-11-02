@@ -2,9 +2,12 @@
   build.ps1 - packages openCaption for other people to install.
 
   Output (in .\dist):
-    openCaption-<version>.zxp            signed CEP extension (any ZXP installer)
-    openCaption-<version>-windows.zip    install.bat + extension + the .zxp
-    SHA256SUMS.txt                     checksums for both
+    openCaption.zxp        signed CEP extension (any ZXP installer)
+    openCaption.zip        install.bat + extension + the .zxp
+    SHA256SUMS.txt         checksums for both
+
+  The package names never change: release tags and titles carry the version,
+  so the download URLs under releases/latest/download stay permanent.
 
   Typical use:
     .\build.ps1
@@ -220,7 +223,7 @@ Ok "$fileCount files staged"
 
 # --------------------------------------------------------------------- sign ---
 New-Item -ItemType Directory -Force -Path $Dist | Out-Null
-$zxpPath = Join-Path $Dist "openCaption-$version.zxp"
+$zxpPath = Join-Path $Dist 'openCaption.zxp'
 
 if ($SkipSign) {
     Warn 'Skipping the .zxp (-SkipSign).'
@@ -239,7 +242,7 @@ if ($SkipSign) {
 
 # ------------------------------------------------------------ windows bundle ---
 Step 'Building the Windows installer package'
-$bundleName = "openCaption-$version-windows"
+$bundleName = 'openCaption'
 $bundleDir = Join-Path $Dist $bundleName
 if (Test-Path -LiteralPath $bundleDir) { Remove-Item -LiteralPath $bundleDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $bundleDir | Out-Null

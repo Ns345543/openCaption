@@ -356,22 +356,29 @@ var Updater = (function () {
       htmlUrl: raw.html_url || ('https://github.com/' + REPO + '/releases/tag/' + raw.tag_name),
       publishedAt: raw.published_at || '',
       assets: assets,
-      zip: pickAsset(assets, 'windows\\.zip$', version),
+      zip: pickAsset(assets, '\\.zip$', version, 'openCaption.zip'),
       sums: pickAsset(assets, '^SHA256SUMS\\.txt$', ''),
-      zxp: pickAsset(assets, '\\.zxp$', version)
+      zxp: pickAsset(assets, '\\.zxp$', version, 'openCaption.zxp')
     };
   }
 
-  /** Prefer an asset whose name contains the release version. */
-  function pickAsset(assets, pattern, version) {
+  /**
+   * Prefer the permanent package name, then one that contains the release
+   * version (older releases used openCaption-<version>-windows.zip), and fall
+   * back to any other match.
+   */
+  function pickAsset(assets, pattern, version, preferred) {
     var re = new RegExp(pattern, 'i');
+    var want = preferred ? preferred.toLowerCase() : '';
+    var versionMatch = null;
     var fallback = null;
     for (var i = 0; i < assets.length; i++) {
       if (!re.test(assets[i].name)) continue;
-      if (version && assets[i].name.indexOf(version) >= 0) return assets[i];
+      if (want && assets[i].name.toLowerCase() === want) return assets[i];
+      if (version && !versionMatch && assets[i].name.indexOf(version) >= 0) versionMatch = assets[i];
       if (!fallback) fallback = assets[i];
     }
-    return fallback;
+    return versionMatch || fallback;
   }
 
   function parseSums(text, filename) {

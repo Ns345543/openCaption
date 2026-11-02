@@ -14,6 +14,11 @@ with ffmpeg, and sends 30-second windows to Gemini.
 **Download:** [latest release](https://github.com/Ns345543/openCaption/releases/latest)
 — Windows installer zip (recommended) or the ZXP for extension managers.
 
+The asset names never change, so these links always point at the newest build:
+
+- Windows: https://github.com/Ns345543/openCaption/releases/latest/download/openCaption.zip
+- ZXP: https://github.com/Ns345543/openCaption/releases/latest/download/openCaption.zxp
+
 ```
 timeline ──► clip list (ExtendScript)          paths + in/out points + positions
          ──► ffmpeg seeks into source media    30s PCM window, gaps = silence
@@ -92,7 +97,7 @@ Two supported routes, both free and per-user (no admin rights):
 
 **A. Windows installer (simplest)**
 
-1. Download `openCaption-1.5.4-windows.zip` and extract it.
+1. Download `openCaption.zip` and extract it.
 2. Close Premiere Pro.
 3. Run `install.bat`.
 
@@ -103,7 +108,7 @@ the saved API key.
 
 **B. ZXP (any CEP extension manager)**
 
-Install `openCaption-1.5.4.zxp` with Anastasiy's Extension Manager, ZXPInstaller or
+Install `openCaption.zxp` with Anastasiy's Extension Manager, ZXPInstaller or
 Adobe `ExManCmd`. This is a **CEP** panel — a UXP-only installer will report
 `manifest.json not found`; use a CEP one instead. The .zxp is signed with a
 self-signed certificate, which CEP loads only when `PlayerDebugMode` is on, so if
@@ -420,8 +425,8 @@ Output lands in `dist\`:
 
 | File | What it is |
 |---|---|
-| `openCaption-<ver>.zxp` | signed CEP extension, ~37 MB (ffmpeg compresses well) |
-| `openCaption-<ver>-windows.zip` | `install.bat` + panel + the .zxp, ~74 MB |
+| `openCaption.zxp` | signed CEP extension, ~37 MB (ffmpeg compresses well) |
+| `openCaption.zip` | `install.bat` + panel + the .zxp, ~74 MB |
 | `SHA256SUMS.txt` | checksums for both |
 
 The build downloads Adobe's `ZXPSignCmd.exe` once into `.build\tools`, creates a

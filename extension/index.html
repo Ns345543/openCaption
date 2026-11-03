@@ -382,9 +382,38 @@
       <button type="button" class="btn sm ghost chat-close" id="chatClose">Close</button>
     </header>
 
+    <div class="chat-config" id="chatConfig">
+      <div class="chat-prov" id="chatProv">
+        <button type="button" class="chat-prov-btn" id="chatProviderBtn"
+                aria-haspopup="listbox" aria-expanded="false" title="Choose AI provider">
+          <span class="prov-mark" id="chatProviderMark" aria-hidden="true">·</span>
+          <span class="chat-prov-name" id="chatProviderName">Provider</span>
+          <span class="prov-caret" aria-hidden="true">▾</span>
+        </button>
+        <div class="chat-prov-menu hidden" id="chatProviderMenu" role="listbox"
+             aria-label="AI providers"></div>
+      </div>
+
+      <select class="chat-model-select" id="chatModel" aria-label="Model"></select>
+      <button type="button" class="chat-icon-btn chat-model-refresh" id="chatModelRefresh"
+              title="Refresh model list" aria-label="Refresh model list">
+        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
+          <path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6" fill="none" stroke="currentColor"
+                stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </button>
+    </div>
+
     <div class="chat-body">
       <div class="chat-view chat-chat-view" id="chatChatView">
         <div class="chat-messages" id="chatMessages" aria-live="polite"></div>
+
+        <div class="chat-connect-banner hidden" id="chatConnectBanner">
+          <span class="chat-connect-copy">
+            <strong id="chatConnectName">This provider</strong> is not connected yet.
+          </span>
+          <button type="button" class="btn primary sm" id="chatConnectProvider">Connect provider</button>
+        </div>
 
         <div class="chat-composer">
           <textarea id="chatInput" rows="1" placeholder="Message OpenCaption AI…"
@@ -401,57 +430,18 @@
         <div class="chat-settings">
           <div class="chat-settings-head">
             <button type="button" class="linkbtn" id="chatSettingsBack">← back to chat</button>
-            <span class="chat-settings-provider">Groq</span>
+            <span class="chat-settings-provider" id="chatSettingsProvider">PROVIDER</span>
           </div>
 
           <h2>AI Chat settings</h2>
           <p class="chat-settings-copy">
-            This key is separate from the Gemini key used for captions. It is stored only
-            on this computer, obfuscated, in <code>%APPDATA%\CaptionAI\chat.json</code>.
+            Each provider has its own key and model. Keys are stored only on this computer,
+            obfuscated in <code>%APPDATA%\CaptionAI\chat.json</code> — that is not encryption.
+            An API key never appears in chat history, logs, or error messages. The Gemini key
+            used for captions is separate and is not used here.
           </p>
 
-          <section class="chat-settings-card">
-            <div class="chat-settings-title">API connection</div>
-            <div class="chat-conn state-off" id="chatConnState">
-              <span class="chat-dot"></span><span id="chatConnText">Not connected</span>
-            </div>
-
-            <label class="field">
-              <span>Groq API key</span>
-              <div class="input-wrap">
-                <input id="chatApiKey" type="password" placeholder="gsk_…"
-                       spellcheck="false" autocomplete="off" />
-                <button id="chatToggleKey" class="ghost-btn" type="button" title="Show / hide">show</button>
-              </div>
-            </label>
-
-            <div class="row wrap chat-key-actions">
-              <button class="btn primary sm" id="chatConnect" type="button">Connect</button>
-              <button class="btn sm" id="chatVerifyKey" type="button">Verify</button>
-              <button class="btn sm" id="chatSaveKey" type="button">Save key</button>
-              <button class="btn sm ghost" id="chatDisconnect" type="button">Disconnect</button>
-              <button class="btn sm ghost" id="chatRemoveKey" type="button">Remove key</button>
-            </div>
-
-            <p class="hint">Get a key at
-              <a href="https://console.groq.com/keys" data-ext="link">console.groq.com/keys</a>.
-              The key is never written to chat history or logs.</p>
-          </section>
-
-          <section class="chat-settings-card">
-            <div class="chat-settings-title">Model</div>
-            <label class="field">
-              <span class="field-head">Groq model
-                <span class="field-actions">
-                  <button id="chatRefreshModels" class="linkbtn" type="button"
-                          title="Ask Groq which models this key can use">refresh</button>
-                </span>
-              </span>
-              <select id="chatModel" aria-label="Groq model"></select>
-            </label>
-            <p class="hint" id="chatModelHint">Models are fetched from your Groq account when you
-              connect. Changing the model does not clear this conversation.</p>
-          </section>
+          <div id="chatProviderCards"></div>
 
           <p class="chat-settings-note">AI responses can be wrong. Check anything important.</p>
         </div>
@@ -471,6 +461,7 @@
 <script src="js/translate.js"></script>
 <script src="js/update.js"></script>
 <script src="js/groq.js"></script>
+<script src="js/providers.js"></script>
 <script src="js/chat.js"></script>
 <script src="js/app.js"></script>
 </body>

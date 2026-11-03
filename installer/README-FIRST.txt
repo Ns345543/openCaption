@@ -9,7 +9,9 @@ You need:
   - Windows 10 or 11
   - Premiere Pro 2022 (22.0) or newer
   - A Google Gemini API key: https://aistudio.google.com/apikey  (free tier works)
-  - Optional, for AI Chat: a Groq API key: https://console.groq.com/keys
+  - Optional, for AI Chat: a key for one or more of Gemini, OpenAI, Anthropic
+    Claude, xAI Grok, DeepSeek, Moonshot Kimi or Groq (links are in AI Chat
+    settings)
 
 The panel and ffmpeg are included in this package. Nothing else to download.
 
@@ -69,11 +71,13 @@ The files also stay on disk in %APPDATA%\CaptionAI\captions.
 AI CHAT (optional)
 ------------------
 Click the chat bubble icon in the panel header (next to the openCaption name)
-to open OpenCaption AI. It uses a separate Groq API key: open "AI Chat
-settings" in the overlay, paste a key from https://console.groq.com/keys, and
-press Connect. Chat history and the chat key live in
-%APPDATA%\CaptionAI\chat.json; caption settings and the Gemini key stay in
-config.json. The chat key is sent only to api.groq.com.
+to open OpenCaption AI. Pick a provider under the chat header, then open "AI
+Chat settings", paste that provider's key and press Connect. Each provider
+keeps its own key, model and model list; the key links and docs are shown on
+every provider card. Chat history and all chat keys live in
+%APPDATA%\CaptionAI\chat.json; caption settings and the caption Gemini key
+stay in config.json. A key is sent only to that provider's API host. The chat
+Gemini key is separate from the caption Gemini key.
 
 
 UPDATES
@@ -119,6 +123,7 @@ Every request retries 429
   Free-tier rate limit. Set Advanced > Parallel to 1 and Chunk length to 60.
 
 Your API keys are stored only on this computer, obfuscated, in
-%APPDATA%\CaptionAI\config.json (Gemini) and chat.json (Groq). Each key is sent
-only to its own service: Gemini to Google, Groq to api.groq.com. This is local
-obfuscation, not encryption.
+%APPDATA%\CaptionAI\config.json (caption Gemini key) and chat.json (one key per
+chat provider). Each key is sent only to its own provider. This is local
+obfuscation, not encryption: anyone with access to your Windows account can
+recover a stored key.

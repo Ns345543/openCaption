@@ -2,26 +2,22 @@
  * chat.js — openCaption AI Chat.
  *
  * A separate full-panel overlay, opened from the header icon. It is
- * deliberately independent of the caption pipeline: its own Groq key, its own
- * model, its own history file (%APPDATA%\CaptionAI\chat.json). Nothing here
- * reads or writes the Gemini settings in config.json.
+ * deliberately independent of the caption pipeline: its own provider keys, its
+ * own models, its own history file (%APPDATA%\CaptionAI\chat.json). Nothing here
+ * reads or writes the Gemini settings in config.json, so the chat's Gemini key
+ * and the caption generator's Gemini key never touch each other.
  *
- * The Groq key is obfuscated with the same local XOR scheme as the Gemini key.
- * That is not encryption; anyone with access to the Windows account can
- * recover it. The key is never logged and never leaves api.groq.com.
+ * Keys are obfuscated with the same local XOR scheme as the caption key. That is
+ * not encryption; anyone with access to the Windows account can recover them.
+ * Each key is sent only to its own provider and is scrubbed from every error
+ * message.
  */
 var Chat = (function () {
   'use strict';
 
-  var STORE_VERSION = 1;
-  var DEFAULT_MODEL = 'openai/gpt-oss-120b';
-  var FALLBACK_MODELS = [
-    { id: 'openai/gpt-oss-120b', context: 131072 },
-    { id: 'openai/gpt-oss-20b', context: 131072 },
-    { id: 'qwen/qwen3-32b', context: 131072 },
-    { id: 'moonshotai/kimi-k2-instruct-0905', context: 262144 },
-    { id: 'llama-3.3-70b-versatile', context: 131072 }
-  ];
+  var STORE_VERSION = 2;
+  var PROVIDER_ORDER = ['gemini', 'openai', 'anthropic', 'xai', 'deepseek', 'moonshot', 'groq'];
+  var LEGACY_PROVIDER = 'groq';
   var MAX_HISTORY_MESSAGES = 60;
   var MAX_HISTORY_CHARS = 120000;
   var SYSTEM_PROMPT = 'You are openCaption AI, a concise, practical assistant built into ' +
@@ -35,15 +31,18 @@ var Chat = (function () {
     generating: false,
     run: null,
     conv: null,
-    conn: 'off',
-    connText: 'Not connected',
-    models: [],
+    provider: LEGACY_PROVIDER,
+    conns: {},
+    verified: {},
+    checking: {},
     sideCollapsed: false,
-    verified: false,
-    saveWarned: false
+    saveWarned: false,
+    menuOpen: false,
+    openCard: ''
   };
 
   var els = {};
+  var cardEls = {};
   var store = null;
   var cs = null;
   var saveTimer = 0;
@@ -124,6 +123,17 @@ var Chat = (function () {
       if (cs) return cs.openURLInDefaultBrowser(url);
     } catch (e) { /* fall through */ }
     try { window.open(url, '_blank'); return true; } catch (e2) { return false; }
+  }
+
+  function bindExternalLinks(root) {
+    if (!root) return;
+    var links = root.querySelectorAll('a[data-ext="link"]');
+    for (var i = 0; i < links.length; i++) {
+      links[i].addEventListener('click', function (e) {
+        e.preventDefault();
+        openExternal(this.getAttribute('href'));
+      });
+    }
   }
 
   function scrollBottom() {
@@ -311,27 +321,249 @@ var Chat = (function () {
     }
   }
 
+  /* ------------------------------------------------------------ providers */
+
+  function validProvider(id) {
+    return PROVIDER_ORDER.indexOf(String(id || '')) >= 0;
+  }
+
+  function provById(id) {
+    if (typeof Providers === 'undefined' || !Providers) return null;
+    return Providers.get(id);
+  }
+
+  function providerName(id) {
+    var p = provById(id);
+    return p ? p.name : String(id || 'Provider');
+  }
+
+  function emptyProvider() {
+    return { apiKey: '', model: '', models: [], modelsAt: 0 };
+  }
+
+  function provState(id) {
+    if (!store.providers[id]) store.providers[id] = emptyProvider();
+    return store.providers[id];
+  }
+
+  function cleanModels(list) {
+    var out = [];
+    var seen = {};
+    var src = Array.isArray(list) ? list : [];
+    for (var i = 0; i < src.length; i++) {
+      var m = src[i] || {};
+      var id = String(m.id || '');
+      if (!id || seen[id]) continue;
+      seen[id] = true;
+      out.push({ id: id, context: Number(m.context) || 0 });
+    }
+    return out;
+  }
+
+  function fallbackModels(id) {
+    var p = provById(id);
+    return p && p.fallbackModels ? cleanModels(p.fallbackModels) : [];
+  }
+
+  function providerModels(id) {
+    var ps = provState(id);
+    return ps.models.length ? ps.models : fallbackModels(id);
+  }
+
+  function modelContext(id, pid) {
+    var list = providerModels(pid);
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].id === id) return list[i].context;
+    }
+    return 0;
+  }
+
+  function modelLabel(model, pid) {
+    var id = String(model && model.id || model || '');
+    var context = model && model.context;
+    if (!context) context = modelContext(id, pid || S.provider);
+    if (context) {
+      var k = Math.round(context / 1000);
+      return id + ' · ' + k + 'k';
+    }
+    return id;
+  }
+
+  function currentModel() {
+    if (S.conv && S.conv.provider === S.provider && S.conv.model) return S.conv.model;
+    var ps = provState(S.provider);
+    if (ps.model) return ps.model;
+    var list = providerModels(S.provider);
+    return list.length ? list[0].id : '';
+  }
+
+  function setModel(id, pid) {
+    id = String(id || '').trim();
+    if (!id) return;
+    pid = validProvider(pid) ? pid : S.provider;
+    var ps = provState(pid);
+    ps.model = id;
+    if (pid === S.provider) {
+      if (S.conv) {
+        S.conv.provider = pid;
+        S.conv.model = id;
+        S.conv.updatedAt = Date.now();
+      }
+      populateModelSelect();
+      updateHeader();
+      updateSendState();
+    }
+    populateCardModels(pid);
+    saveSoon();
+  }
+
+  function populateModelSelect() {
+    if (!els.chatModel) return;
+    var models = providerModels(S.provider);
+    var active = currentModel();
+    els.chatModel.innerHTML = '';
+    var found = false;
+
+    models.forEach(function (m) {
+      var opt = document.createElement('option');
+      opt.value = m.id;
+      opt.textContent = modelLabel(m, S.provider);
+      els.chatModel.appendChild(opt);
+      if (m.id === active) found = true;
+    });
+
+    if (!models.length) {
+      var empty = document.createElement('option');
+      empty.value = '';
+      empty.textContent = 'No models listed';
+      els.chatModel.appendChild(empty);
+    } else if (active && !found) {
+      var extra = document.createElement('option');
+      extra.value = active;
+      extra.textContent = active + ' (not listed)';
+      els.chatModel.appendChild(extra);
+      found = true;
+    }
+
+    els.chatModel.value = found && active ? active : '';
+    els.chatModel.disabled = !models.length;
+    if (els.chatModelRefresh) {
+      els.chatModelRefresh.disabled = !provState(S.provider).apiKey;
+    }
+  }
+
+  function populateCardModels(pid) {
+    var card = cardEls[pid];
+    if (!card) return;
+    var ps = provState(pid);
+    var models = providerModels(pid);
+    var active = ps.model || (models.length ? models[0].id : '');
+    card.model.innerHTML = '';
+
+    models.forEach(function (m) {
+      var opt = document.createElement('option');
+      opt.value = m.id;
+      opt.textContent = modelLabel(m, pid);
+      card.model.appendChild(opt);
+    });
+
+    if (active && !models.some(function (m) { return m.id === active; })) {
+      var extra = document.createElement('option');
+      extra.value = active;
+      extra.textContent = active + ' (not listed)';
+      card.model.appendChild(extra);
+    }
+    if (!models.length && !active) {
+      var empty = document.createElement('option');
+      empty.value = '';
+      empty.textContent = 'No models listed';
+      card.model.appendChild(empty);
+    }
+
+    card.model.value = active;
+    card.model.disabled = !models.length;
+    if (!ps.model && active) ps.model = active;
+
+    if (card.modelHint) {
+      var hint = ps.modelsAt
+        ? ps.models.length + ' model(s) listed by ' + providerName(pid) + '.'
+        : 'Using a built-in list until you connect.';
+      if (ps.modelsAt && ps.models.length && ps.model &&
+          !ps.models.some(function (m) { return m.id === ps.model; })) {
+        hint += ' The selected model is not in the current list.';
+      }
+      card.modelHint.textContent = hint;
+    }
+  }
+
+  function populateAllCardModels() {
+    PROVIDER_ORDER.forEach(function (pid) { populateCardModels(pid); });
+  }
+
   /* --------------------------------------------------------------- storage */
 
   function emptyStore() {
     return {
       version: STORE_VERSION,
-      apiKey: '',
-      model: DEFAULT_MODEL,
-      models: [],
-      modelsAt: 0,
+      providers: {},
       conversations: [],
       activeId: '',
+      activeProvider: LEGACY_PROVIDER,
       sidebarCollapsed: false
     };
   }
 
-  function cleanConversation(raw) {
+  function decodeKey(text) {
+    try {
+      return (typeof Config !== 'undefined' && Config.ok) ? Config.decodeSecret(text) : String(text || '');
+    } catch (e) { return ''; }
+  }
+
+  function encodeKey(text) {
+    if (!text) return '';
+    try {
+      /* Never fall back to plaintext: if the encoder is unavailable the key is
+         simply not persisted, and the user can paste it again after restart. */
+      return (typeof Config !== 'undefined' && Config.ok) ? Config.encodeSecret(text) : '';
+    } catch (e) { return ''; }
+  }
+
+  function cleanProvider(raw) {
+    var out = emptyProvider();
+    if (!raw || typeof raw !== 'object') return out;
+    out.apiKey = decodeKey(String(raw.apiKey || ''));
+    out.model = String(raw.model || '');
+    out.models = cleanModels(raw.models);
+    out.modelsAt = Number(raw.modelsAt) || 0;
+    return out;
+  }
+
+  function cleanUsage(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    var input = Number(raw.input) || 0;
+    var output = Number(raw.output) || 0;
+    var total = Number(raw.total) || (input + output);
+    if (!input && !output && !total) return null;
+    return { input: input, output: output, total: total };
+  }
+
+  function cleanConversation(raw, fallbackProvider, fallbackModel) {
     if (!raw || typeof raw !== 'object') return null;
     var id = String(raw.id || '');
     if (!id) return null;
-    var messages = [];
+
+    var convProvider = validProvider(raw.provider) ? raw.provider : '';
+    var convModel = String(raw.model || fallbackModel || '');
     var list = Array.isArray(raw.messages) ? raw.messages : [];
+
+    if (!convProvider) {
+      for (var p = 0; p < list.length; p++) {
+        if (list[p] && validProvider(list[p].provider)) { convProvider = list[p].provider; break; }
+      }
+    }
+    if (!convProvider && fallbackProvider) convProvider = fallbackProvider;
+
+    var messages = [];
     for (var i = 0; i < list.length; i++) {
       var m = list[i] || {};
       var role = m.role === 'assistant' ? 'assistant' : m.role === 'user' ? 'user' : '';
@@ -342,15 +574,22 @@ var Chat = (function () {
         id: String(m.id || newId()),
         role: role,
         content: content,
-        ts: Number(m.ts) || Date.now()
+        ts: Number(m.ts) || Date.now(),
+        provider: validProvider(m.provider) ? m.provider : convProvider,
+        model: String(m.model || (role === 'assistant' ? convModel : '')),
+        reasoning: typeof m.reasoning === 'string' ? m.reasoning : '',
+        usage: cleanUsage(m.usage),
+        finishReason: String(m.finishReason || '')
       });
     }
+
     return {
       id: id,
       title: String(raw.title || 'New chat').slice(0, 120),
       createdAt: Number(raw.createdAt) || Date.now(),
       updatedAt: Number(raw.updatedAt) || Number(raw.createdAt) || Date.now(),
-      model: String(raw.model || ''),
+      provider: convProvider,
+      model: convModel,
       messages: messages
     };
   }
@@ -359,80 +598,118 @@ var Chat = (function () {
     var out = emptyStore();
     if (!raw || typeof raw !== 'object') return out;
 
-    out.model = String(raw.model || DEFAULT_MODEL);
-    out.models = (Array.isArray(raw.models) ? raw.models : []).filter(function (m) {
-      return m && typeof m.id === 'string' && m.id;
-    }).map(function (m) {
-      return { id: m.id, context: Number(m.context) || 0 };
-    });
-    out.modelsAt = Number(raw.modelsAt) || 0;
     out.sidebarCollapsed = !!raw.sidebarCollapsed;
 
-    var list = Array.isArray(raw.conversations) ? raw.conversations : [];
-    for (var i = 0; i < list.length; i++) {
-      var conv = cleanConversation(list[i]);
+    var rawProviders = raw.providers && typeof raw.providers === 'object' ? raw.providers : null;
+    var fallback = rawProviders ? '' : LEGACY_PROVIDER;
+    var fallbackModel = rawProviders ? '' : String(raw.model || '');
+
+    /* v1 stored a single Groq key/model at the top level. Move it into the
+       provider map so the key and every old conversation survive the upgrade. */
+    if (!rawProviders) {
+      out.providers[LEGACY_PROVIDER] = emptyProvider();
+      out.providers[LEGACY_PROVIDER].apiKey = decodeKey(String(raw.apiKey || ''));
+      out.providers[LEGACY_PROVIDER].model = String(raw.model || '');
+      out.providers[LEGACY_PROVIDER].models = cleanModels(raw.models);
+      out.providers[LEGACY_PROVIDER].modelsAt = Number(raw.modelsAt) || 0;
+    }
+
+    for (var i = 0; i < PROVIDER_ORDER.length; i++) {
+      var pid = PROVIDER_ORDER[i];
+      if (rawProviders && rawProviders[pid]) out.providers[pid] = cleanProvider(rawProviders[pid]);
+      else if (!out.providers[pid]) out.providers[pid] = emptyProvider();
+    }
+
+    /* A very old file could have both shapes; do not lose the Groq key. */
+    if (rawProviders && raw.apiKey && !out.providers[LEGACY_PROVIDER].apiKey) {
+      out.providers[LEGACY_PROVIDER].apiKey = decodeKey(String(raw.apiKey));
+    }
+
+    var conversations = Array.isArray(raw.conversations) ? raw.conversations : [];
+    for (var c = 0; c < conversations.length; c++) {
+      var conv = cleanConversation(conversations[c], fallback, fallbackModel);
       if (conv) out.conversations.push(conv);
     }
-    out.activeId = String(raw.activeId || '');
-    if (!out.conversations.some(function (c) { return c.id === out.activeId; })) out.activeId = '';
 
-    var key = String(raw.apiKey || '');
-    try {
-      out.apiKey = typeof Config !== 'undefined' && Config.ok ? Config.decodeSecret(key) : key;
-    } catch (e) { out.apiKey = ''; }
+    out.activeId = String(raw.activeId || '');
+    if (!out.conversations.some(function (x) { return x.id === out.activeId; })) out.activeId = '';
+
+    if (validProvider(raw.activeProvider)) {
+      out.activeProvider = raw.activeProvider;
+    } else if (out.activeId) {
+      var active = out.conversations.filter(function (x) { return x.id === out.activeId; })[0];
+      out.activeProvider = active && active.provider ? active.provider : '';
+    }
+    if (!validProvider(out.activeProvider)) out.activeProvider = LEGACY_PROVIDER;
 
     return out;
   }
 
-  function loadStore() {
-    canPersist = typeof NODE !== 'undefined' && NODE.ok &&
-      typeof Config !== 'undefined' && Config.ok;
-    if (!canPersist) return emptyStore();
-
-    /* chat.js can boot before app.js calls Config.load(), so the data
-       directory may not exist yet when the first save happens. */
-    try { Config.ensureDirs(); } catch (e) { /* save reports the failure */ }
-
-    chatFile = NODE.path.join(Config.DATA_DIR, 'chat.json');
-    var fallback = emptyStore();
-    try {
-      if (!NODE.fs.existsSync(chatFile)) return fallback;
-      var raw = JSON.parse(NODE.fs.readFileSync(chatFile, 'utf8'));
-      return cleanStore(raw);
-    } catch (e) {
-      return fallback;
-    }
-  }
-
   function serializeStore() {
+    var providers = {};
+    for (var i = 0; i < PROVIDER_ORDER.length; i++) {
+      var pid = PROVIDER_ORDER[i];
+      var ps = store.providers[pid] || emptyProvider();
+      providers[pid] = {
+        apiKey: ps.apiKey ? encodeKey(ps.apiKey) : '',
+        model: ps.model,
+        models: cleanModels(ps.models),
+        modelsAt: ps.modelsAt
+      };
+    }
+
     var conversations = store.conversations.map(function (c) {
       return {
         id: c.id,
         title: c.title,
         createdAt: c.createdAt,
         updatedAt: c.updatedAt,
+        provider: c.provider,
         model: c.model,
         messages: c.messages.map(function (m) {
-          return { id: m.id, role: m.role, content: m.content, ts: m.ts };
+          var out = {
+            id: m.id,
+            role: m.role,
+            content: m.content,
+            ts: m.ts,
+            provider: m.provider || '',
+            model: m.model || ''
+          };
+          if (m.reasoning) out.reasoning = m.reasoning;
+          if (m.usage) out.usage = m.usage;
+          if (m.finishReason) out.finishReason = m.finishReason;
+          return out;
         })
       };
     });
 
-    var key = store.apiKey || '';
-    try {
-      if (typeof Config !== 'undefined' && Config.ok) key = Config.encodeSecret(key);
-    } catch (e) { /* store plain only if Config vanished mid-session */ }
-
     return {
       version: STORE_VERSION,
-      apiKey: key,
-      model: store.model,
-      models: store.models,
-      modelsAt: store.modelsAt,
+      providers: providers,
       conversations: conversations,
       activeId: store.activeId,
+      activeProvider: store.activeProvider,
       sidebarCollapsed: !!S.sideCollapsed
     };
+  }
+
+  function loadStore() {
+    canPersist = typeof NODE !== 'undefined' && NODE.ok &&
+      typeof Config !== 'undefined' && Config.ok;
+    if (!canPersist) return cleanStore(null);
+
+    /* chat.js can boot before app.js calls Config.load(), so the data
+       directory may not exist yet when the first save happens. */
+    try { Config.ensureDirs(); } catch (e) { /* save reports the failure */ }
+
+    chatFile = NODE.path.join(Config.DATA_DIR, 'chat.json');
+    try {
+      if (!NODE.fs.existsSync(chatFile)) return cleanStore(null);
+      var raw = JSON.parse(NODE.fs.readFileSync(chatFile, 'utf8'));
+      return cleanStore(raw);
+    } catch (e) {
+      return cleanStore(null);
+    }
   }
 
   function saveNow() {
@@ -443,7 +720,7 @@ var Chat = (function () {
     } catch (e) {
       if (!S.saveWarned) {
         S.saveWarned = true;
-        setConn('error', 'Chat history could not be saved.');
+        setConn(S.provider, 'error', 'Chat history could not be saved.');
       }
     }
   }
@@ -454,253 +731,426 @@ var Chat = (function () {
     saveTimer = setTimeout(saveNow, 250);
   }
 
-  /* ----------------------------------------------------------------- model */
-
-  function availableModels() {
-    return S.models.length ? S.models : FALLBACK_MODELS;
-  }
-
-  function modelLabel(model) {
-    var id = String(model && model.id || model || '');
-    var context = model && model.context;
-    if (!context) {
-      for (var i = 0; i < S.models.length; i++) {
-        if (S.models[i].id === id) { context = S.models[i].context; break; }
-      }
-    }
-    if (context) {
-      var k = Math.round(context / 1000);
-      return id + ' · ' + k + 'k';
-    }
-    return id;
-  }
-
-  function currentModel() {
-    if (S.conv && S.conv.model) return S.conv.model;
-    if (store && store.model) return store.model;
-    var list = availableModels();
-    return list.length ? list[0].id : DEFAULT_MODEL;
-  }
-
-  function populateModelSelect() {
-    if (!els.chatModel) return;
-    var models = availableModels();
-    var active = currentModel();
-    els.chatModel.innerHTML = '';
-    var found = false;
-
-    models.forEach(function (m) {
-      var opt = document.createElement('option');
-      opt.value = m.id;
-      opt.textContent = modelLabel(m);
-      els.chatModel.appendChild(opt);
-      if (m.id === active) found = true;
-    });
-
-    if (active && !found) {
-      var extra = document.createElement('option');
-      extra.value = active;
-      extra.textContent = active + ' (not listed)';
-      els.chatModel.appendChild(extra);
-    }
-    els.chatModel.value = active;
-  }
-
-  function updateHeader() {
-    if (!els.chatTitle) return;
-    els.chatTitle.textContent = S.conv ? S.conv.title : 'OpenCaption AI';
-    els.chatSub.textContent = 'Groq · ' + currentModel();
-    var welcomeModel = els.chatMessages && els.chatMessages.querySelector('.chat-welcome-model');
-    if (welcomeModel) welcomeModel.textContent = currentModel();
-  }
-
-  function setModel(id) {
-    if (!id) return;
-    if (S.conv) {
-      S.conv.model = id;
-      S.conv.updatedAt = Date.now();
-    }
-    store.model = id;
-    saveSoon();
-    if (els.chatModel) els.chatModel.value = id;
-    updateHeader();
-  }
-
-  /* -------------------------------------------------------------- connection */
+  /* ----------------------------------------------------------- connection */
 
   var CONN_TEXT = {
-    off: 'Not connected',
+    off: 'Not configured',
     saved: 'Key saved',
     connecting: 'Connecting…',
     connected: 'Connected',
     invalid: 'Invalid API key',
     rate: 'Rate limited',
+    quota: 'No credits / quota',
     network: 'Network error',
     model: 'Model unavailable',
+    service: 'Service unavailable',
     error: 'Connection error'
   };
 
-  function setConn(kind, text) {
-    S.conn = kind || 'off';
-    S.connText = text || CONN_TEXT[S.conn] || CONN_TEXT.off;
+  var STATE_CLASSES = ['off', 'saved', 'connecting', 'connected', 'invalid', 'rate',
+    'quota', 'network', 'model', 'service', 'error'];
 
-    [els.chatStatusPill, els.chatConnState, els.chatSideStatus].forEach(function (el) {
-      if (!el) return;
-      el.classList.remove('state-off', 'state-saved', 'state-connecting', 'state-connected',
-        'state-invalid', 'state-rate', 'state-network', 'state-model', 'state-error');
-      el.classList.add('state-' + S.conn);
+  function applyStateClass(el, kind) {
+    if (!el) return;
+    for (var i = 0; i < STATE_CLASSES.length; i++) el.classList.remove('state-' + STATE_CLASSES[i]);
+    el.classList.add('state-' + (kind || 'off'));
+  }
+
+  function defaultConn(pid) {
+    var ps = provState(pid);
+    if (ps.apiKey) return { kind: 'saved', text: 'Key saved — test to connect' };
+    return { kind: 'off', text: 'Not configured' };
+  }
+
+  function connOf(pid) {
+    return S.conns[pid] || defaultConn(pid);
+  }
+
+  function setConn(pid, kind, text) {
+    S.conns[pid] = {
+      kind: kind || 'off',
+      text: text || CONN_TEXT[kind] || CONN_TEXT.off
+    };
+    renderCardStatus(pid);
+    renderProviderMenu();
+    refreshPill();
+    refreshConnectBanner();
+    updateSendState();
+  }
+
+  function renderCardStatus(pid) {
+    var card = cardEls[pid];
+    if (!card) return;
+    var conn = connOf(pid);
+    applyStateClass(card.status, conn.kind);
+    card.statusText.textContent = conn.text;
+    card.status.title = conn.text;
+    card.root.setAttribute('data-state', conn.kind);
+  }
+
+  function refreshPill() {
+    var conn = connOf(S.provider);
+    applyStateClass(els.chatStatusPill, conn.kind);
+    applyStateClass(els.chatSideStatus, conn.kind);
+    if (els.chatStatusPillText) els.chatStatusPillText.textContent = conn.text;
+    if (els.chatStatusText) els.chatStatusText.textContent = conn.text;
+  }
+
+  function refreshConnectBanner() {
+    if (!els.chatConnectBanner) return;
+    var missing = !provState(S.provider).apiKey;
+    els.chatConnectBanner.classList.toggle('hidden', !missing);
+    if (missing) {
+      if (els.chatConnectName) els.chatConnectName.textContent = providerName(S.provider);
+      if (els.chatAdapterName) els.chatAdapterName.textContent = providerName(S.provider);
+    }
+  }
+
+  function maskCard(pid) {
+    var card = cardEls[pid];
+    if (!card) return;
+    card.key.type = 'password';
+    card.toggle.textContent = 'show';
+  }
+
+  function syncCardKey(pid) {
+    var card = cardEls[pid];
+    if (!card) return;
+    card.key.value = provState(pid).apiKey || '';
+    maskCard(pid);
+  }
+
+  function setCardBusy(pid, busy) {
+    var card = cardEls[pid];
+    if (!card) return;
+    card.root.classList.toggle('busy', !!busy);
+    ['connect', 'test', 'save', 'remove', 'disconnect', 'refresh', 'useCustom'].forEach(function (key) {
+      if (card[key]) card[key].disabled = !!busy;
     });
-
-    if (els.chatStatusPillText) els.chatStatusPillText.textContent = S.connText;
-    if (els.chatStatusText) els.chatStatusText.textContent = S.connText;
-    if (els.chatConnText) els.chatConnText.textContent = S.connText;
+    if (card.model) card.model.disabled = !!busy || !providerModels(pid).length;
   }
 
-  function keyFieldValue() {
-    return els.chatApiKey ? els.chatApiKey.value.trim() : '';
+  function handleConnFailure(pid, res) {
+    var kind = res && res.kind ? res.kind : 'error';
+    if (kind === 'cancelled') return;
+    setConn(pid, kind, res && res.error ? res.error : (CONN_TEXT[kind] || CONN_TEXT.error));
   }
 
-  function maskKeyField() {
-    if (!els.chatApiKey) return;
-    els.chatApiKey.type = 'password';
-    if (els.chatToggleKey) els.chatToggleKey.textContent = 'show';
-  }
-
-  function syncKeyField() {
-    if (!els.chatApiKey) return;
-    els.chatApiKey.value = store.apiKey || '';
-    maskKeyField();
-  }
-
-  function applyModels(models) {
-    var clean = (Array.isArray(models) ? models : []).filter(function (m) {
-      return m && m.id;
-    });
+  function applyModels(pid, models) {
+    var ps = provState(pid);
+    var clean = cleanModels(models);
+    var hadDiscovery = !!ps.modelsAt;
     if (clean.length) {
-      S.models = clean;
-      store.models = clean;
-      store.modelsAt = Date.now();
-    } else if (!S.models.length) {
-      S.models = FALLBACK_MODELS.slice();
-      store.models = S.models;
+      ps.models = clean;
+      ps.modelsAt = Date.now();
+    } else if (!ps.models.length) {
+      ps.models = fallbackModels(pid);
     }
 
-    var ids = S.models.map(function (m) { return m.id; });
-    var active = currentModel();
-    if (ids.indexOf(active) < 0) {
-      var next = ids.indexOf(store.model) >= 0 ? store.model : ids[0];
-      if (S.conv) S.conv.model = next;
-      store.model = next;
+    var ids = ps.models.map(function (m) { return m.id; });
+    if (!ps.model && ids.length) ps.model = ids[0];
+    else if (!hadDiscovery && clean.length && ids.indexOf(ps.model) < 0) {
+      ps.model = ids[0];
+    }
+
+    if (S.conv && S.conv.provider === pid) {
+      if (!S.conv.model) S.conv.model = ps.model;
+      else if (!hadDiscovery && clean.length && ids.indexOf(S.conv.model) < 0) {
+        S.conv.model = ps.model;
+      }
     }
 
     populateModelSelect();
+    populateCardModels(pid);
     updateHeader();
+    updateSendState();
     saveSoon();
   }
 
-  function handleConnFailure(res) {
-    var kind = res && res.kind ? res.kind : 'error';
-    if (kind === 'cancelled') return;
-    var text = res && res.error ? res.error : (CONN_TEXT[kind] || CONN_TEXT.error);
-    setConn(kind, text);
-    S.verified = false;
-    return text;
-  }
-
-  function verifyKey(key, opts) {
+  function verifyProvider(pid, key, opts) {
     opts = opts || {};
+    if (!validProvider(pid)) return Promise.resolve({ ok: false, kind: 'error', error: 'Unknown provider.' });
+    var p = provById(pid);
+    if (!p) return Promise.resolve({ ok: false, kind: 'error', error: 'AI Chat is unavailable.' });
+
     if (!key) {
-      setConn('off', 'Enter a Groq API key first.');
+      setConn(pid, 'off', 'Paste an API key first.');
+      openProviderSettings(pid);
       return Promise.resolve({ ok: false, missing: true });
     }
+    if (S.checking[pid]) return S.checking[pid];
 
-    setConn('connecting');
-    if (els.chatConnect) els.chatConnect.disabled = true;
-    if (els.chatVerifyKey) els.chatVerifyKey.disabled = true;
-    if (els.chatRefreshModels) els.chatRefreshModels.disabled = true;
+    setConn(pid, 'connecting', 'Connecting…');
+    setCardBusy(pid, true);
 
-    return Groq.verify(key).then(function (res) {
-      if (res.ok) {
-        S.verified = true;
+    var promise = p.test(key).then(function (res) {
+      if (res && res.ok) {
+        S.verified[pid] = true;
         if (opts.save) {
-          store.apiKey = key;
+          provState(pid).apiKey = key;
           saveSoon();
+          syncCardKey(pid);
         }
-        applyModels(res.models);
-        setConn('connected', res.models.length
-          ? 'Connected · ' + res.models.length + ' model(s)'
+        applyModels(pid, res.models);
+        setConn(pid, 'connected', res.models && res.models.length
+          ? 'Connected · ' + res.models.length + ' models'
           : 'Connected');
       } else {
-        handleConnFailure(res);
+        S.verified[pid] = false;
+        handleConnFailure(pid, res);
       }
       return res;
     }).catch(function (e) {
-      var kind = Groq.classify(e);
-      setConn(kind, e.message || CONN_TEXT[kind] || CONN_TEXT.error);
-      return { ok: false, kind: kind, error: e.message };
+      S.verified[pid] = false;
+      var kind = (typeof Providers !== 'undefined' && Providers) ? Providers.classify(e) : 'error';
+      setConn(pid, kind, (e && e.message) || ('Could not reach ' + p.name + '.'));
+      return { ok: false, kind: kind, error: e && e.message };
     }).then(function (res) {
-      maskKeyField();
-      if (els.chatConnect) els.chatConnect.disabled = false;
-      if (els.chatVerifyKey) els.chatVerifyKey.disabled = false;
-      if (els.chatRefreshModels) els.chatRefreshModels.disabled = false;
+      maskCard(pid);
+      setCardBusy(pid, false);
+      delete S.checking[pid];
       return res;
     });
+
+    S.checking[pid] = promise;
+    return promise;
   }
 
-  function saveKey() {
-    var key = keyFieldValue();
-    store.apiKey = key;
+  function saveProviderKey(pid) {
+    var card = cardEls[pid];
+    if (!card) return;
+    var key = card.key.value.trim();
+    var ps = provState(pid);
+    ps.apiKey = key;
+    S.verified[pid] = false;
     saveSoon();
-    syncKeyField();
-    S.verified = false;
-    if (!key) {
-      setConn('off', 'Key removed.');
+    syncCardKey(pid);
+    setConn(pid, key ? 'saved' : 'off',
+      key ? 'Key saved. Press Connect to test it.' : 'No API key');
+    populateModelSelect();
+    updateSendState();
+  }
+
+  function removeProviderKey(pid) {
+    var ps = provState(pid);
+    if (!ps.apiKey) {
+      setConn(pid, 'off', 'There is no saved key for ' + providerName(pid) + '.');
       return;
     }
-    setConn('saved', 'Key saved. Press Connect or Verify to test it.');
-  }
+    if (!window.confirm('Remove the saved ' + providerName(pid) + ' API key? ' +
+      'Other providers and your chat history are kept.')) return;
 
-  function connect() {
-    var key = keyFieldValue();
-    if (!key) {
-      setConn('off', 'Paste a Groq API key first.');
-      els.chatApiKey.focus();
-      return;
-    }
-    verifyKey(key, { save: true });
-  }
-
-  function verifyOnly() {
-    var key = keyFieldValue() || store.apiKey;
-    if (!key) {
-      setConn('off', 'Paste a Groq API key first.');
-      els.chatApiKey.focus();
-      return;
-    }
-    verifyKey(key, { save: false });
-  }
-
-  function refreshModels() {
-    var key = store.apiKey || keyFieldValue();
-    verifyKey(key, { save: false });
-  }
-
-  function disconnect() {
-    stopGeneration();
-    S.verified = false;
-    setConn('off', 'Disconnected. The saved key is kept.');
-  }
-
-  function removeKey() {
-    stopGeneration();
-    store.apiKey = '';
-    S.verified = false;
+    if (S.generating && S.run && S.run.provider === pid) stopGeneration();
+    ps.apiKey = '';
+    ps.models = [];
+    ps.modelsAt = 0;
+    S.verified[pid] = false;
     saveNow();
-    syncKeyField();
-    setConn('off', 'No API key');
+    syncCardKey(pid);
+    setConn(pid, 'off', 'Key removed.');
+    populateModelSelect();
+    populateCardModels(pid);
+    updateSendState();
   }
 
-  /* ------------------------------------------------------------------- views */
+  function disconnectProvider(pid) {
+    S.verified[pid] = false;
+    setConn(pid, 'off', 'Disconnected. The saved key is kept.');
+  }
+
+  function connectProvider(pid) {
+    var card = cardEls[pid];
+    var ps = provState(pid);
+    var key = card && card.key.value.trim() ? card.key.value.trim() : ps.apiKey;
+    if (!key) {
+      setConn(pid, 'off', 'Paste an API key first.');
+      openProviderSettings(pid);
+      return;
+    }
+    verifyProvider(pid, key, { save: true });
+  }
+
+  function testProvider(pid) {
+    var card = cardEls[pid];
+    var ps = provState(pid);
+    var key = card && card.key.value.trim() ? card.key.value.trim() : ps.apiKey;
+    if (!key) {
+      setConn(pid, 'off', 'Paste an API key first.');
+      openProviderSettings(pid);
+      return;
+    }
+    verifyProvider(pid, key, { save: false });
+  }
+
+  function refreshProviderModels(pid) {
+    var ps = provState(pid);
+    var card = cardEls[pid];
+    var key = (card && card.key.value.trim()) || ps.apiKey;
+    if (!key) {
+      setConn(pid, 'off', 'Paste an API key first.');
+      openProviderSettings(pid);
+      return;
+    }
+    verifyProvider(pid, key, { save: false });
+  }
+
+  /* -------------------------------------------------------------- provider ui */
+
+  function renderProviderMenu() {
+    if (!els.chatProviderMenu) return;
+    els.chatProviderMenu.innerHTML = '';
+
+    PROVIDER_ORDER.forEach(function (pid) {
+      var p = provById(pid);
+      if (!p) return;
+      var conn = connOf(pid);
+
+      var row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'prov-item' + (pid === S.provider ? ' active' : '');
+      row.setAttribute('role', 'option');
+      row.setAttribute('aria-selected', pid === S.provider ? 'true' : 'false');
+      row.setAttribute('data-provider', pid);
+
+      var mark = document.createElement('span');
+      mark.className = 'prov-mark';
+      mark.style.color = p.tint || '';
+      mark.textContent = p.mark || '·';
+      row.appendChild(mark);
+
+      var name = document.createElement('span');
+      name.className = 'prov-item-name';
+      name.textContent = p.name;
+      row.appendChild(name);
+
+      var status = document.createElement('span');
+      status.className = 'prov-item-state';
+      applyStateClass(status, conn.kind);
+      var dot = document.createElement('span');
+      dot.className = 'chat-dot';
+      status.appendChild(dot);
+      var word = document.createElement('span');
+      word.textContent = statusWord(conn.kind);
+      status.appendChild(word);
+      row.appendChild(status);
+
+      if (pid === S.provider) {
+        var check = document.createElement('span');
+        check.className = 'prov-check';
+        check.textContent = '✓';
+        check.setAttribute('aria-hidden', 'true');
+        row.appendChild(check);
+      }
+
+      row.addEventListener('click', function () {
+        selectProvider(pid);
+        closeMenu();
+      });
+      els.chatProviderMenu.appendChild(row);
+    });
+
+    bindExternalLinks(els.chatProviderMenu);
+  }
+
+  function statusWord(kind) {
+    switch (kind) {
+      case 'connected': return 'connected';
+      case 'connecting': return 'checking';
+      case 'saved': return 'key saved';
+      case 'invalid': return 'invalid key';
+      case 'rate': return 'rate limited';
+      case 'quota': return 'no credits';
+      case 'model': return 'no model';
+      case 'network': return 'offline';
+      case 'service': return 'service down';
+      case 'error': return 'error';
+      default: return 'add key';
+    }
+  }
+
+  function openMenu() {
+    if (!els.chatProviderMenu) return;
+    renderProviderMenu();
+    els.chatProviderMenu.classList.remove('hidden');
+    if (els.chatProviderBtn) els.chatProviderBtn.setAttribute('aria-expanded', 'true');
+    S.menuOpen = true;
+  }
+
+  function closeMenu() {
+    if (!els.chatProviderMenu) return;
+    els.chatProviderMenu.classList.add('hidden');
+    if (els.chatProviderBtn) els.chatProviderBtn.setAttribute('aria-expanded', 'false');
+    S.menuOpen = false;
+  }
+
+  function syncProviderUi() {
+    var p = provById(S.provider);
+    if (els.chatProviderMark) {
+      els.chatProviderMark.textContent = p ? (p.mark || '·') : '·';
+      els.chatProviderMark.style.color = p ? (p.tint || '') : '';
+    }
+    if (els.chatProviderName) els.chatProviderName.textContent = p ? p.name : 'Provider';
+    if (els.chatSettingsProvider) {
+      els.chatSettingsProvider.textContent = (p ? p.longName : S.provider).toUpperCase();
+    }
+
+    var ps = provState(S.provider);
+    if (els.chatModelRefresh) els.chatModelRefresh.disabled = !ps.apiKey;
+    renderProviderMenu();
+    refreshPill();
+    refreshConnectBanner();
+    updateHeader();
+    updateSendState();
+  }
+
+  function selectProvider(pid) {
+    if (!validProvider(pid) || !provById(pid)) return;
+    if (pid === S.provider) {
+      syncProviderUi();
+      return;
+    }
+    if (S.generating) stopGeneration();
+
+    S.provider = pid;
+    store.activeProvider = pid;
+    var ps = provState(pid);
+
+    if (!ps.model) {
+      var list = providerModels(pid);
+      if (list.length) ps.model = list[0].id;
+    }
+    if (S.conv) {
+      S.conv.provider = pid;
+      S.conv.model = ps.model || '';
+      S.conv.updatedAt = Date.now();
+    }
+
+    saveSoon();
+    syncProviderUi();
+    populateModelSelect();
+    if (S.settings) expandCard(pid);
+
+    if (!ps.apiKey) {
+      setConn(pid, 'off', 'Not configured — add a key');
+    } else if (!S.verified[pid]) {
+      if (S.conns[pid] && S.conns[pid].kind === 'off') {
+        setConn(pid, 'saved', 'Key saved — test to connect');
+      }
+      if (S.open) verifyProvider(pid, ps.apiKey, { save: false });
+    }
+  }
+
+  /* --------------------------------------------------------------- models */
+
+  function updateHeader() {
+    if (!els.chatTitle) return;
+    els.chatTitle.textContent = S.conv ? S.conv.title : 'OpenCaption AI';
+    var model = currentModel();
+    els.chatSub.textContent = providerName(S.provider) + (model ? ' · ' + model : ' · no model');
+    renderWelcomeModel();
+  }
+
+  /* ----------------------------------------------------------------- views */
 
   function showChatView() {
     S.settings = false;
@@ -713,9 +1163,47 @@ var Chat = (function () {
     S.settings = true;
     if (els.chatChatView) els.chatChatView.classList.add('hidden');
     if (els.chatSettingsView) els.chatSettingsView.classList.remove('hidden');
-    syncKeyField();
-    populateModelSelect();
-    if (els.chatApiKey) els.chatApiKey.focus();
+    PROVIDER_ORDER.forEach(syncCardKey);
+    populateAllCardModels();
+    expandCard(S.provider);
+    if (els.chatSettingsProvider) {
+      var p = provById(S.provider);
+      els.chatSettingsProvider.textContent = (p ? p.longName : S.provider).toUpperCase();
+    }
+    var card = cardEls[S.provider];
+    if (card) {
+      (provState(S.provider).apiKey ? card.head : card.key).focus();
+    }
+  }
+
+  function openProviderSettings(pid) {
+    if (!validProvider(pid)) return;
+    if (pid !== S.provider) {
+      S.provider = pid;
+      store.activeProvider = pid;
+      if (S.conv) {
+        S.conv.provider = pid;
+        S.conv.model = provState(pid).model || currentModel();
+      }
+      syncProviderUi();
+      populateModelSelect();
+      saveSoon();
+    }
+    openSettings();
+    expandCard(pid);
+    var card = cardEls[pid];
+    if (card) card.key.focus();
+  }
+
+  function expandCard(pid) {
+    S.openCard = S.openCard === pid ? '' : pid;
+    PROVIDER_ORDER.forEach(function (id) {
+      var card = cardEls[id];
+      if (!card) return;
+      var open = S.openCard === id;
+      card.root.classList.toggle('open', open);
+      card.head.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
   }
 
   function applySidebar() {
@@ -759,10 +1247,11 @@ var Chat = (function () {
         '<div class="chat-welcome-mark">AI</div>' +
         '<h2>OpenCaption AI</h2>' +
         '<p class="chat-welcome-copy">Ask about Premiere, captions, code, writing, or anything else. ' +
-        'Caption settings stay exactly where you left them.</p>' +
+        'Pick a provider and model above; caption settings stay exactly where you left them.</p>' +
         '<div class="chat-suggestions"></div>' +
-        '<p class="chat-welcome-foot">Powered by <strong>Groq</strong> · ' +
-        '<span class="chat-welcome-model">' + escapeHtml(currentModel()) + '</span></p>' +
+        '<p class="chat-welcome-foot">Powered by <strong class="chat-welcome-provider">' +
+          escapeHtml(providerName(S.provider)) + '</strong> · ' +
+          '<span class="chat-welcome-model">' + escapeHtml(currentModel() || 'choose a model') + '</span></p>' +
       '</div>';
 
     var holder = els.chatMessages.querySelector('.chat-suggestions');
@@ -782,6 +1271,56 @@ var Chat = (function () {
       });
       holder.appendChild(btn);
     });
+  }
+
+  function renderWelcomeModel() {
+    if (!els.chatMessages) return;
+    var provider = els.chatMessages.querySelector('.chat-welcome-provider');
+    if (provider) provider.textContent = providerName(S.provider);
+    var model = els.chatMessages.querySelector('.chat-welcome-model');
+    if (model) model.textContent = currentModel() || 'choose a model';
+  }
+
+  function formatTokens(usage) {
+    function n(value) {
+      var v = Number(value) || 0;
+      if (v >= 1000000) return (v / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+      if (v >= 1000) return (v / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+      return String(v);
+    }
+    if (!usage) return '';
+    var total = usage.total || ((usage.input || 0) + (usage.output || 0));
+    return n(usage.input) + ' in · ' + n(usage.output) + ' out · ' + n(total) + ' total';
+  }
+
+  function metaText(msg) {
+    var bits = [];
+    if (msg.provider) bits.push(providerName(msg.provider));
+    if (msg.model) bits.push(msg.model);
+    return bits.join(' · ');
+  }
+
+  function fillMeta(el, msg) {
+    var meta = el.querySelector('[data-meta]');
+    if (!meta) return;
+    var text = metaText(msg);
+    var usage = formatTokens(msg.usage);
+    meta.textContent = usage ? text + ' · ' + usage : text;
+    meta.classList.toggle('hidden', !text);
+    meta.title = usage ? 'Token usage reported by ' + providerName(msg.provider) : '';
+  }
+
+  function fillReasoning(el, msg) {
+    var box = el.querySelector('[data-reason]');
+    if (!box) return;
+    var body = box.querySelector('[data-reason-body]');
+    if (!msg.reasoning) {
+      box.classList.add('hidden');
+      if (body) body.textContent = '';
+      return;
+    }
+    box.classList.remove('hidden');
+    if (body) body.textContent = msg.reasoning;
   }
 
   function addActions(el, msg, canRegenerate) {
@@ -828,10 +1367,18 @@ var Chat = (function () {
     }
 
     root.innerHTML = '<div class="msg-avatar" aria-hidden="true">AI</div>' +
-      '<div class="msg-col"><div class="msg-bubble md" data-bubble></div>' +
-      '<div class="msg-actions"></div></div>';
+      '<div class="msg-col">' +
+        '<details class="msg-reason hidden" data-reason><summary>reasoning</summary>' +
+        '<div class="msg-reason-body" data-reason-body></div></details>' +
+        '<div class="msg-bubble md" data-bubble></div>' +
+        '<div class="msg-meta hidden" data-meta></div>' +
+        '<div class="msg-actions"></div>' +
+      '</div>';
 
     var bubble = root.querySelector('[data-bubble]');
+    fillMeta(root, msg);
+    fillReasoning(root, msg);
+
     if (streaming) {
       bubble.classList.add('streaming');
       bubble.textContent = msg.content || '';
@@ -884,6 +1431,8 @@ var Chat = (function () {
     bubble.classList.remove('streaming');
     bubble.innerHTML = renderMarkdown(msg.content);
     bindMarkdown(bubble);
+    fillMeta(el, msg);
+    fillReasoning(el, msg);
     addActions(el, msg, canRegenerate);
   }
 
@@ -918,6 +1467,7 @@ var Chat = (function () {
       title: 'New chat',
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      provider: S.provider,
       model: currentModel(),
       messages: []
     };
@@ -1001,22 +1551,27 @@ var Chat = (function () {
     if (!conv) return;
     S.conv = conv;
     store.activeId = conv.id;
-    if (conv.model) {
-      store.model = conv.model;
-      if (els.chatModel) els.chatModel.value = conv.model;
-    }
+
+    if (validProvider(conv.provider) && provById(conv.provider)) S.provider = conv.provider;
+    else conv.provider = S.provider;
+    store.activeProvider = S.provider;
+
+    var ps = provState(S.provider);
+    if (conv.model) ps.model = conv.model;
+    else conv.model = ps.model || (providerModels(S.provider)[0] || {}).id || '';
+
     saveSoon();
+    syncProviderUi();
+    populateModelSelect();
     renderList();
     renderConversation(conv);
     showChatView();
     collapseSidebar();
     updateHeader();
-    renderWelcomeModel();
-  }
 
-  function renderWelcomeModel() {
-    var el = els.chatMessages && els.chatMessages.querySelector('.chat-welcome-model');
-    if (el) el.textContent = currentModel();
+    if (ps.apiKey && !S.verified[S.provider] && S.open) {
+      verifyProvider(S.provider, ps.apiKey, { save: false });
+    }
   }
 
   function newChat() {
@@ -1029,9 +1584,8 @@ var Chat = (function () {
     showChatView();
     collapseSidebar();
     updateHeader();
-    renderWelcomeModel();
     scrollBottom();
-    els.chatInput.focus();
+    if (els.chatInput) els.chatInput.focus();
   }
 
   function deleteConversation(id) {
@@ -1057,7 +1611,7 @@ var Chat = (function () {
       return;
     }
     if (!window.confirm('Delete every AI Chat conversation? This cannot be undone. ' +
-      'Your Groq key and caption settings are kept.')) return;
+      'Your saved provider keys and caption settings are kept.')) return;
 
     stopGeneration();
     store.conversations = [];
@@ -1074,8 +1628,9 @@ var Chat = (function () {
 
   function updateSendState() {
     if (!els.chatSend) return;
-    var empty = !els.chatInput.value.trim();
-    els.chatSend.disabled = S.generating || empty;
+    var ps = provState(S.provider);
+    var empty = !els.chatInput || !els.chatInput.value.trim();
+    els.chatSend.disabled = S.generating || empty || !ps.apiKey || !currentModel();
     if (els.chatStop) els.chatStop.classList.toggle('hidden', !S.generating);
   }
 
@@ -1123,20 +1678,28 @@ var Chat = (function () {
     var text = els.chatInput ? els.chatInput.value.trim() : '';
     if (!text) return;
 
-    if (!store.apiKey) {
+    var p = provById(S.provider);
+    var ps = provState(S.provider);
+    if (!p) {
+      notice('AI Chat is unavailable. Restart Premiere or check the panel manifest.', 'err');
+      return;
+    }
+    if (!ps.apiKey) {
       showChatView();
-      notice('Connect a Groq API key before sending a message.', 'warn');
-      openSettings();
+      notice('Connect ' + p.name + ' before sending a message.', 'warn');
+      openProviderSettings(S.provider);
       return;
     }
     if (!currentModel()) {
-      notice('Choose a Groq model in Settings first.', 'warn');
-      openSettings();
+      notice('Choose a ' + p.name + ' model in Settings first.', 'warn');
+      openProviderSettings(S.provider);
       return;
     }
 
     var conv = ensureConversation();
     if (!conv.title || conv.title === 'New chat') conv.title = titleFrom(text);
+    conv.provider = S.provider;
+    conv.model = currentModel();
 
     var message = { id: newId(), role: 'user', content: text, ts: Date.now() };
     conv.messages.push(message);
@@ -1155,8 +1718,29 @@ var Chat = (function () {
     if (S.generating) return;
     if (!conv.messages.some(function (m) { return m.role === 'user' && m.content; })) return;
 
-    var assistant = { id: newId(), role: 'assistant', content: '', ts: Date.now() };
+    var p = provById(S.provider);
+    var ps = provState(S.provider);
+    var model = currentModel();
+    if (!p || !ps.apiKey || !model) {
+      notice('Connect a provider and choose a model before sending.', 'warn');
+      openSettings();
+      return;
+    }
+
+    var assistant = {
+      id: newId(),
+      role: 'assistant',
+      content: '',
+      reasoning: '',
+      ts: Date.now(),
+      provider: S.provider,
+      model: model,
+      usage: null,
+      finishReason: ''
+    };
     conv.messages.push(assistant);
+    conv.provider = S.provider;
+    conv.model = model;
 
     var el = renderMessage(assistant, false, true);
     els.chatMessages.appendChild(el);
@@ -1168,7 +1752,9 @@ var Chat = (function () {
       assistant: assistant,
       el: el,
       got: false,
-      settled: false
+      settled: false,
+      provider: S.provider,
+      model: model
     };
 
     setGenerating(true);
@@ -1183,6 +1769,16 @@ var Chat = (function () {
       bubble.textContent = full;
       scrollBottom();
     }
+  }
+
+  function onReasoning(run, full) {
+    run.assistant.reasoning = full;
+    var box = run.el ? run.el.querySelector('[data-reason]') : null;
+    if (!box) return;
+    box.classList.remove('hidden');
+    var body = box.querySelector('[data-reason-body]');
+    if (body) body.textContent = full;
+    scrollBottom();
   }
 
   function finishRun(run) {
@@ -1201,6 +1797,11 @@ var Chat = (function () {
     }
     run.assistant.content = result.text;
     run.assistant.ts = Date.now();
+    if (result.reasoning) run.assistant.reasoning = result.reasoning;
+    if (result.usage) run.assistant.usage = result.usage;
+    if (result.finishReason) run.assistant.finishReason = result.finishReason;
+    if (result.model) run.assistant.model = result.model;
+    run.assistant.provider = run.provider;
     run.conv.updatedAt = Date.now();
     finalizeAssistant(run.el, run.assistant, true);
     saveNow();
@@ -1221,7 +1822,7 @@ var Chat = (function () {
 
   function finishError(run, err) {
     if (run.settled) return;
-    var kind = Groq.classify(err);
+    var kind = (typeof Providers !== 'undefined' && Providers) ? Providers.classify(err) : 'error';
     var message = (err && err.message) ? err.message : 'The request failed.';
 
     if (run.token.cancelled || kind === 'cancelled') {
@@ -1239,11 +1840,12 @@ var Chat = (function () {
       var at = run.conv.messages.indexOf(run.assistant);
       if (at >= 0) run.conv.messages.splice(at, 1);
       if (run.el && run.el.parentNode) run.el.parentNode.removeChild(run.el);
-      notice(message, kind === 'invalid' || kind === 'rate' ? 'warn' : 'err');
+      notice(message, kind === 'invalid' || kind === 'rate' || kind === 'quota' ? 'warn' : 'err');
     }
 
-    if (kind === 'invalid' || kind === 'rate' || kind === 'model' || kind === 'network') {
-      setConn(kind, message);
+    if (kind === 'invalid' || kind === 'rate' || kind === 'quota' ||
+        kind === 'model' || kind === 'network' || kind === 'service') {
+      setConn(run.provider, kind, message);
     }
     finishRun(run);
   }
@@ -1266,29 +1868,40 @@ var Chat = (function () {
   }
 
   function perform(run, messages, fallbackUsed) {
-    var model = run.conv.model || currentModel();
+    var p = provById(run.provider);
+    var ps = provState(run.provider);
+    if (!p) {
+      finishError(run, new Error('AI Chat is unavailable.'));
+      return;
+    }
+
     var handlers = {
+      apiKey: ps.apiKey,
+      model: run.model,
+      messages: messages,
+      temperature: 0.7,
       token: run.token,
-      onDelta: function (_, full) { onDelta(run, full); }
+      onDelta: function (_, full) { onDelta(run, full); },
+      onReasoning: function (_, full) { onReasoning(run, full); }
     };
 
-    Groq.streamChat(store.apiKey, model, messages, handlers).then(function (result) {
+    p.chat(handlers).then(function (result) {
       finishSuccess(run, result);
     }).catch(function (err) {
       if (run.settled) return;
       if (run.token.cancelled) { finishAborted(run); return; }
 
-      var kind = Groq.classify(err);
+      var kind = (typeof Providers !== 'undefined' && Providers) ? Providers.classify(err) : 'error';
       var canFallback = !fallbackUsed && !run.got &&
-        (kind === 'network' || kind === 'error');
+        (kind === 'network' || kind === 'error' || kind === 'service');
 
-      if (!canFallback) {
+      if (!canFallback || !p.complete) {
         finishError(run, err);
         return;
       }
 
       notice('Streaming was interrupted — retrying without streaming…', 'info');
-      Groq.completeChat(store.apiKey, model, messages, handlers).then(function (result) {
+      p.complete(handlers).then(function (result) {
         finishSuccess(run, result);
       }).catch(function (err2) {
         finishError(run, err2);
@@ -1299,7 +1912,8 @@ var Chat = (function () {
   function stopGeneration() {
     if (!S.run) return;
     S.run.token.cancelled = true;
-    Groq.cancel(S.run.token);
+    if (typeof Providers !== 'undefined' && Providers) Providers.cancel(S.run.token);
+    else if (typeof Groq !== 'undefined' && Groq.ok) Groq.cancel(S.run.token);
     if (els.chatStop) {
       els.chatStop.disabled = true;
       els.chatStop.textContent = 'Stopping…';
@@ -1321,6 +1935,139 @@ var Chat = (function () {
     startCompletion(conv);
   }
 
+  /* -------------------------------------------------------------- provider cards */
+
+  function buildProviderCards() {
+    if (!els.chatProviderCards) return;
+    els.chatProviderCards.innerHTML = '';
+    cardEls = {};
+
+    PROVIDER_ORDER.forEach(function (pid) {
+      var p = provById(pid);
+      if (!p) return;
+
+      var card = document.createElement('section');
+      card.className = 'chat-settings-card prov-card';
+      card.setAttribute('data-provider', pid);
+      card.innerHTML =
+        '<div class="prov-card-head" role="button" tabindex="0" aria-expanded="false">' +
+          '<span class="prov-mark" style="color:' + escapeHtml(p.tint || '') + '">' +
+            escapeHtml(p.mark || '·') + '</span>' +
+          '<span class="prov-card-name">' + escapeHtml(p.longName) + '</span>' +
+          '<span class="chat-conn state-off" data-role="status">' +
+            '<span class="chat-dot"></span><span data-role="statustext">Not configured</span></span>' +
+          '<span class="prov-caret" aria-hidden="true">▾</span>' +
+        '</div>' +
+        '<div class="prov-card-body">' +
+          '<label class="field"><span>' + escapeHtml(p.name) + ' API key</span>' +
+            '<div class="input-wrap">' +
+              '<input data-role="key" type="password" placeholder="' + escapeHtml(p.keyHint || 'API key') + '" ' +
+                'spellcheck="false" autocomplete="off" />' +
+              '<button class="ghost-btn" data-role="toggle" type="button" title="Show / hide">show</button>' +
+            '</div>' +
+          '</label>' +
+          '<div class="row wrap chat-key-actions">' +
+            '<button class="btn primary sm" data-role="connect" type="button">Connect</button>' +
+            '<button class="btn sm" data-role="test" type="button">Test</button>' +
+            '<button class="btn sm" data-role="save" type="button">Save key</button>' +
+            '<button class="btn sm ghost" data-role="disconnect" type="button">Disconnect</button>' +
+            '<button class="btn sm ghost" data-role="remove" type="button">Remove key</button>' +
+          '</div>' +
+          '<p class="hint">Get a key at <a href="' + escapeHtml(p.keyUrl) + '" data-ext="link">' +
+            escapeHtml(String(p.keyUrl).replace(/^https?:\/\//, '').replace(/\/$/, '')) + '</a> · ' +
+            '<a href="' + escapeHtml(p.docsUrl) + '" data-ext="link">docs</a>. ' +
+            'Stored on this computer only; never shown in chat.</p>' +
+          '<div class="prov-model-grid">' +
+            '<label class="field"><span class="field-head">Model ' +
+              '<span class="field-actions"><button class="linkbtn" data-role="refresh" type="button" ' +
+                'title="Fetch models from ' + escapeHtml(p.name) + '">refresh</button></span></span>' +
+              '<select data-role="model" aria-label="' + escapeHtml(p.name) + ' model"></select></label>' +
+            '<label class="field"><span>Custom model ID</span>' +
+              '<div class="input-wrap"><input data-role="custom" type="text" spellcheck="false" ' +
+                'placeholder="exact model id" />' +
+                '<button class="btn sm" data-role="usecustom" type="button">use</button></div></label>' +
+          '</div>' +
+          '<p class="hint" data-role="modelhint"></p>' +
+        '</div>';
+
+      var cache = {
+        root: card,
+        head: card.querySelector('.prov-card-head'),
+        status: card.querySelector('[data-role="status"]'),
+        statusText: card.querySelector('[data-role="statustext"]'),
+        key: card.querySelector('[data-role="key"]'),
+        toggle: card.querySelector('[data-role="toggle"]'),
+        connect: card.querySelector('[data-role="connect"]'),
+        test: card.querySelector('[data-role="test"]'),
+        save: card.querySelector('[data-role="save"]'),
+        disconnect: card.querySelector('[data-role="disconnect"]'),
+        remove: card.querySelector('[data-role="remove"]'),
+        refresh: card.querySelector('[data-role="refresh"]'),
+        model: card.querySelector('[data-role="model"]'),
+        custom: card.querySelector('[data-role="custom"]'),
+        useCustom: card.querySelector('[data-role="usecustom"]'),
+        modelHint: card.querySelector('[data-role="modelhint"]')
+      };
+      cardEls[pid] = cache;
+
+      cache.head.addEventListener('click', function () { expandCard(pid); });
+      cache.head.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          expandCard(pid);
+        }
+      });
+
+      cache.toggle.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var showing = cache.key.type === 'text';
+        cache.key.type = showing ? 'password' : 'text';
+        cache.toggle.textContent = showing ? 'show' : 'hide';
+      });
+      cache.key.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          connectProvider(pid);
+        }
+      });
+
+      cache.connect.addEventListener('click', function () { connectProvider(pid); });
+      cache.test.addEventListener('click', function () { testProvider(pid); });
+      cache.save.addEventListener('click', function () { saveProviderKey(pid); });
+      cache.disconnect.addEventListener('click', function () { disconnectProvider(pid); });
+      cache.remove.addEventListener('click', function () { removeProviderKey(pid); });
+      cache.refresh.addEventListener('click', function () { refreshProviderModels(pid); });
+
+      cache.model.addEventListener('change', function () {
+        setModel(cache.model.value, pid);
+      });
+
+      cache.useCustom.addEventListener('click', function () {
+        var id = cache.custom.value.trim();
+        if (!id) return;
+        setModel(id, pid);
+        cache.custom.value = '';
+      });
+      cache.custom.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          cache.useCustom.click();
+        }
+      });
+
+      bindExternalLinks(card);
+      els.chatProviderCards.appendChild(card);
+    });
+  }
+
+  function syncAllCards() {
+    PROVIDER_ORDER.forEach(function (pid) {
+      syncCardKey(pid);
+      renderCardStatus(pid);
+      populateCardModels(pid);
+    });
+  }
+
   /* -------------------------------------------------------------------- open */
 
   function open() {
@@ -1331,24 +2078,27 @@ var Chat = (function () {
     if (isNarrow()) S.sideCollapsed = true;
     applySidebar();
 
-    if (!store.apiKey) {
-      setConn('off', 'No API key');
-    } else if (!S.verified && !S.generating) {
-      verifyKey(store.apiKey, { save: false });
+    var ps = provState(S.provider);
+    if (!ps.apiKey) {
+      setConn(S.provider, 'off', 'Not configured — add a key');
+    } else if (!S.verified[S.provider] && !S.generating) {
+      verifyProvider(S.provider, ps.apiKey, { save: false });
     }
 
     if (!S.generating) {
       if (S.conv) renderConversation(S.conv);
       else renderWelcome();
     }
+    syncProviderUi();
+    populateModelSelect();
     updateHeader();
-    renderWelcomeModel();
     scrollBottom();
     setTimeout(function () { if (els.chatInput) els.chatInput.focus(); }, 40);
   }
 
   function close() {
     if (!S.booted) return;
+    closeMenu();
     els.chatShell.classList.add('hidden');
     els.chatShell.setAttribute('aria-hidden', 'true');
     S.open = false;
@@ -1386,21 +2136,24 @@ var Chat = (function () {
     if (els.chatSearch) els.chatSearch.addEventListener('input', renderList);
     if (els.chatClearAll) els.chatClearAll.addEventListener('click', clearAll);
 
-    if (els.chatSaveKey) els.chatSaveKey.addEventListener('click', saveKey);
-    if (els.chatConnect) els.chatConnect.addEventListener('click', connect);
-    if (els.chatVerifyKey) els.chatVerifyKey.addEventListener('click', verifyOnly);
-    if (els.chatDisconnect) els.chatDisconnect.addEventListener('click', disconnect);
-    if (els.chatRemoveKey) els.chatRemoveKey.addEventListener('click', removeKey);
-    if (els.chatRefreshModels) els.chatRefreshModels.addEventListener('click', refreshModels);
-
-    if (els.chatToggleKey) els.chatToggleKey.addEventListener('click', function () {
-      var showing = els.chatApiKey.type === 'text';
-      els.chatApiKey.type = showing ? 'password' : 'text';
-      els.chatToggleKey.textContent = showing ? 'show' : 'hide';
+    if (els.chatProviderBtn) els.chatProviderBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (S.menuOpen) closeMenu();
+      else openMenu();
+    });
+    if (els.chatProviderMenu) els.chatProviderMenu.addEventListener('click', function (e) {
+      e.stopPropagation();
     });
 
     if (els.chatModel) els.chatModel.addEventListener('change', function () {
       setModel(els.chatModel.value);
+    });
+    if (els.chatModelRefresh) els.chatModelRefresh.addEventListener('click', function () {
+      refreshProviderModels(S.provider);
+    });
+
+    if (els.chatConnectProvider) els.chatConnectProvider.addEventListener('click', function () {
+      openProviderSettings(S.provider);
     });
 
     if (els.chatSend) els.chatSend.addEventListener('click', sendCurrent);
@@ -1417,11 +2170,19 @@ var Chat = (function () {
       });
     }
 
+    document.addEventListener('mousedown', function (e) {
+      if (!S.menuOpen) return;
+      var wrap = els.chatProviderBtn ? els.chatProviderBtn.parentNode : null;
+      if (wrap && wrap.contains(e.target)) return;
+      closeMenu();
+    });
+
     document.addEventListener('keydown', function (e) {
       if (e.key !== 'Escape' || !S.open) return;
       e.preventDefault();
       e.stopPropagation();
-      if (S.settings) showChatView();
+      if (S.menuOpen) closeMenu();
+      else if (S.settings) showChatView();
       else close();
     }, true);
   }
@@ -1436,9 +2197,10 @@ var Chat = (function () {
       'chatSideStatus',
       'chatTop', 'chatTitle', 'chatSub', 'chatStatusPill', 'chatStatusPillText',
       'chatSettingsOpen', 'chatClose', 'chatMessages', 'chatInput', 'chatSend', 'chatStop',
-      'chatChatView', 'chatSettingsView', 'chatSettingsBack', 'chatApiKey', 'chatToggleKey',
-      'chatSaveKey', 'chatConnect', 'chatVerifyKey', 'chatDisconnect', 'chatRemoveKey',
-      'chatConnState', 'chatConnText', 'chatModel', 'chatRefreshModels', 'chatModelHint'];
+      'chatChatView', 'chatSettingsView', 'chatSettingsBack',
+      'chatProviderBtn', 'chatProviderMark', 'chatProviderName', 'chatProviderMenu',
+      'chatModel', 'chatModelRefresh', 'chatConnectBanner', 'chatConnectName',
+      'chatConnectProvider', 'chatProviderCards', 'chatSettingsProvider'];
 
     ids.forEach(function (id) { els[id] = $(id); });
     if (!els.chatShell || !els.chatMessages) return;
@@ -1446,24 +2208,36 @@ var Chat = (function () {
     try { cs = new CSInterface(); } catch (e) { cs = null; }
 
     store = loadStore();
-    S.models = store.models.length ? store.models : FALLBACK_MODELS.slice();
+    for (var i = 0; i < PROVIDER_ORDER.length; i++) {
+      if (!store.providers[PROVIDER_ORDER[i]]) store.providers[PROVIDER_ORDER[i]] = emptyProvider();
+    }
+    if (validProvider(store.activeProvider)) S.provider = store.activeProvider;
     S.sideCollapsed = !!store.sidebarCollapsed;
     if (store.activeId) S.conv = conversationById(store.activeId);
+    if (S.conv && validProvider(S.conv.provider)) S.provider = S.conv.provider;
+    store.activeProvider = S.provider;
 
-    if (typeof Groq === 'undefined' || !Groq.ok) {
-      setConn('error', (typeof Groq !== 'undefined' && Groq.error) || 'AI Chat is unavailable.');
+    buildProviderCards();
+    bind();
+    syncAllCards();
+    populateModelSelect();
+    applySidebar();
+    renderList();
+
+    PROVIDER_ORDER.forEach(function (pid) {
+      S.conns[pid] = defaultConn(pid);
+      renderCardStatus(pid);
+    });
+
+    if (typeof Providers === 'undefined' || !Providers.available) {
+      setConn(S.provider, 'error', 'AI Chat is unavailable — Node.js is not enabled in this panel.');
       if (els.chatSend) els.chatSend.disabled = true;
-    } else if (!store.apiKey) {
-      setConn('off', 'No API key');
-    } else {
-      setConn('saved', 'Key saved — press Connect to test it.');
+    } else if (typeof Groq === 'undefined' && !provById('groq')) {
+      setConn(S.provider, 'saved', 'Key saved — press Connect to test it.');
     }
 
+    syncProviderUi();
     populateModelSelect();
-    syncKeyField();
-    applySidebar();
-    bind();
-    renderList();
 
     if (S.conv) renderConversation(S.conv);
     else renderWelcome();
@@ -1492,6 +2266,11 @@ var Chat = (function () {
     _store: function () { return store; },
     _state: function () { return S; },
     _save: saveNow,
-    _loadStore: loadStore
+    _loadStore: loadStore,
+    _cleanStore: cleanStore,
+    _serializeStore: serializeStore,
+    _selectProvider: selectProvider,
+    _providerState: provState,
+    _applyModels: applyModels
   };
 })();

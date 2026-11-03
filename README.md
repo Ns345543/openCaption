@@ -7,10 +7,11 @@
 A CEP panel for Premiere Pro that transcribes your timeline audio with the Google
 Gemini API and drops the result back as a real, editable caption track.
 
-It also includes **OpenCaption AI**, a separate Groq-powered chat panel for
-questions about editing, code, captions or anything else. The two features are
-independent: chat has its own key, its own model and its own history, and never
-touches your caption settings.
+It also includes **OpenCaption AI**, a separate multi-provider chat panel for
+questions about editing, code, captions or anything else. Chat works with Gemini,
+OpenAI, Anthropic Claude, xAI Grok, DeepSeek, Moonshot Kimi and Groq, each with
+its own key and model. The two features are independent: chat has its own keys
+and history, and never touches your caption settings or caption Gemini key.
 
 No Media Encoder, no render, no upload of your whole sequence: the panel reads the
 timeline structure, slices audio straight out of your **original source media**
@@ -84,7 +85,7 @@ so every control stays readable. A saved custom theme is stored in
 | Matrix | phosphor green |
 | Paper | light paper with vermilion accents |
 
-## AI Chat (Groq)
+## AI Chat (seven providers)
 
 The chat bubble icon in the header — immediately right of the openCaption
 branding and before the version stamp — opens **OpenCaption AI** as a full-panel
@@ -99,22 +100,56 @@ to exactly the settings and log you left.
   drawer and closes itself when you pick a conversation or a suggestion.
 - Enter sends, Shift+Enter adds a line, and the composer grows as you type.
 - Suggested prompts and a welcome screen start a new chat.
-- The model list is fetched from Groq when you connect, and can be refreshed.
+- A provider selector and model selector sit under the chat header. Each provider
+  keeps its own key, model and fetched model list; switching never overwrites
+  another provider's settings.
+- Every answer is labelled with the provider and model that produced it, plus
+  token usage when the provider returns it. A conversation can switch providers
+  mid-thread; history is normalised before it is sent, so one provider never
+  receives another provider's private fields.
+- DeepSeek/OpenAI-style reasoning text is shown in a collapsible **reasoning**
+  block and never mixed into the answer.
 
-**The Groq key is separate from the Gemini caption key.** Open **AI Chat
-settings** from the overlay, paste a key from
-https://console.groq.com/keys, then **Connect** (or **Verify**) to test it. The
-key is masked by default, can be shown temporarily, replaced or removed, and it
-is never written to the chat transcript or the panel log.
+### Provider setup
+
+Open **AI Chat settings** (gear icon) and expand a provider. Paste a key, press
+**Connect** to make a real authenticated request and load its models, then choose
+a model. **Test** re-checks without saving; **Refresh** re-fetches the model list;
+**Remove key** deletes only that provider's key. Keys are masked by default and
+can be shown temporarily.
+
+| Provider | Get a key | API docs |
+|---|---|---|
+| Google Gemini | https://aistudio.google.com/apikey | https://ai.google.dev/gemini-api/docs |
+| OpenAI | https://platform.openai.com/api-keys | https://developers.openai.com/api/docs |
+| Anthropic Claude | https://console.anthropic.com/settings/keys | https://platform.claude.com/docs/en/api/overview |
+| xAI Grok | https://console.x.ai/ | https://docs.x.ai/ |
+| DeepSeek | https://platform.deepseek.com/api_keys | https://api-docs.deepseek.com/ |
+| Moonshot Kimi | https://platform.moonshot.ai/ | https://platform.moonshot.ai/docs |
+| Groq | https://console.groq.com/keys | https://console.groq.com/docs |
+
+All seven use the provider's official HTTPS API. Model lists are fetched when
+you connect and can be refreshed. If a provider does not expose a list, or the
+request fails, a maintained fallback list is shown and **Custom model ID** lets
+you type an exact model name.
+
+**The chat Gemini key is separate from the Gemini caption key.** Chat stores one
+credential per provider, so a key configured for captions is never reused or
+altered by AI Chat. Keys are only sent to their own provider's host.
+
+Connection states: Not configured, Connecting, Connected, Invalid API key, Rate
+limited, No credits / quota, Model unavailable, Network error, Service
+unavailable.
 
 Chat state lives in `%APPDATA%\CaptionAI\chat.json`; caption settings stay in
-`config.json`. Both keys use the same local XOR + base64 obfuscation. That is
-**not encryption** — anyone with access to your Windows account can recover a
-key — and the panel only ever sends the Groq key to `api.groq.com`.
+`config.json`. Chat keys are stored with the same local XOR + base64 obfuscation
+as the caption key. That is **not encryption** — anyone with access to your
+Windows account can recover a key. Keys never appear in the chat transcript or
+the panel log, and error messages are scrubbed before they are shown.
 
-The provider layer is a separate module (`js/groq.js`) behind a small interface,
-so another provider can be added without touching the chat UI or caption
-pipeline.
+The provider layer lives in `js/providers.js`: one adapter per wire format
+(Gemini, Anthropic Messages, OpenAI-compatible), with `js/groq.js` kept as the
+Groq adapter. Adding a provider does not touch the chat UI or caption pipeline.
 
 ## Requirements
 
@@ -124,7 +159,7 @@ pipeline.
 | OS | Windows 10/11 |
 | ffmpeg | bundled in the installer — nothing to install |
 | Gemini API key | https://aistudio.google.com/apikey (free tier works) |
-| Groq API key | optional, only for AI Chat — https://console.groq.com/keys |
+| AI Chat keys | optional, one or more providers — see the provider table above |
 
 Costs are per transcription, billed to your own key. A one-hour sequence is roughly
 120 short audio requests.
@@ -357,8 +392,16 @@ subtitles.
   language inside the same script (English speech, Spanish captions) relies on the
   model following the instruction; check the first cues before a long run.
 - **API key storage** is local obfuscation, not encryption. Anyone with access to
-  your Windows account can read `%APPDATA%\CaptionAI\config.json` (Gemini) or
-  `chat.json` (Groq). That is fine for a personal tool; it is why no key is bundled.
+  your Windows account can read `%APPDATA%\CaptionAI\config.json` (caption Gemini
+  key) or `chat.json` (every chat provider key). That is fine for a personal tool;
+  it is why no key is bundled.
+- **Provider limits and model names change.** AI Chat fetches live model lists
+  when it can, but each provider controls availability, quotas and pricing. A key
+  can connect while a particular model is unavailable to that account; the panel
+  reports that as **Model unavailable** and lets you choose another.
+- **Live provider testing needs your keys.** The adapter suite uses mocked HTTP
+  responses; a provider you have not configured is reported as not configured,
+  not as working. No reply is ever faked.
 - **AI Chat answers can be wrong.** Treat them like any other assistant output and
   check anything that matters. Chat history is stored on this computer only.
 
@@ -419,8 +462,9 @@ extension/
   js/nodeglue.js           Node built-ins (fs, https, child_process)
   js/CSInterface.js        minimal CEP bridge
   js/config.js             settings in %APPDATA%\CaptionAI\config.json
-  js/groq.js               Groq chat provider (streaming, models, errors)
-  js/chat.js               AI Chat overlay, history in chat.json, Markdown
+  js/providers.js          seven AI Chat provider adapters (streaming, models, errors)
+  js/groq.js               Groq transport used by the Groq adapter
+  js/chat.js               AI Chat overlay, provider state, history in chat.json
   js/premiere.js           async wrapper over ExtendScript
   js/audio.js              ffmpeg slicing, PCM assembly, speech envelope
   js/gemini.js             REST calls, JSON schema, retries

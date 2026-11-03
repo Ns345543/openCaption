@@ -134,6 +134,7 @@ var Groq = (function () {
       var settled = false;
       var entry = null;
       var text = '';
+      var reasoning = '';
       var usage = null;
       var finishReason = '';
 
@@ -199,6 +200,11 @@ var Groq = (function () {
             text += piece;
             if (handlers.onDelta) handlers.onDelta(piece, text);
           }
+          var thought = delta.reasoning || delta.reasoning_content;
+          if (typeof thought === 'string' && thought) {
+            reasoning += thought;
+            if (handlers.onReasoning) handlers.onReasoning(thought, reasoning);
+          }
         }
 
         res.on('data', function (chunk) {
@@ -218,7 +224,10 @@ var Groq = (function () {
         res.on('end', function () {
           if (settled) return;
           if (buffer.trim()) handleEvent(buffer);
-          finish(resolve, { text: text, usage: usage, finishReason: finishReason, model: model });
+          finish(resolve, {
+            text: text, reasoning: reasoning, usage: usage,
+            finishReason: finishReason, model: model
+          });
         });
 
         res.on('error', function (e) {
@@ -257,9 +266,12 @@ var Groq = (function () {
       }
       var message = json.choices[0].message || {};
       var content = typeof message.content === 'string' ? message.content : '';
+      var reasoning = String(message.reasoning || message.reasoning_content || '');
       if (handlers.onDelta && content) handlers.onDelta(content, content);
+      if (handlers.onReasoning && reasoning) handlers.onReasoning(reasoning, reasoning);
       return {
         text: content,
+        reasoning: reasoning,
         usage: json.usage || null,
         finishReason: json.choices[0].finish_reason || '',
         model: json.model || model

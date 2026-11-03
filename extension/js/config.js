@@ -187,6 +187,9 @@ var Config = (function () {
     load: load,
     save: save,
     sanitizeName: sanitizeName,
-    timestamp: timestamp
+    timestamp: timestamp,
+    /* Shared obfuscation for independent settings files (AI Chat). */
+    encodeSecret: encodeKey,
+    decodeSecret: decodeKey
   };
 })();

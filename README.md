@@ -7,6 +7,11 @@
 A CEP panel for Premiere Pro that transcribes your timeline audio with the Google
 Gemini API and drops the result back as a real, editable caption track.
 
+It also includes **OpenCaption AI**, a separate Groq-powered chat panel for
+questions about editing, code, captions or anything else. The two features are
+independent: chat has its own key, its own model and its own history, and never
+touches your caption settings.
+
 No Media Encoder, no render, no upload of your whole sequence: the panel reads the
 timeline structure, slices audio straight out of your **original source media**
 with ffmpeg, and sends 30-second windows to Gemini.
@@ -79,6 +84,38 @@ so every control stays readable. A saved custom theme is stored in
 | Matrix | phosphor green |
 | Paper | light paper with vermilion accents |
 
+## AI Chat (Groq)
+
+The chat bubble icon in the header — immediately right of the openCaption
+branding and before the version stamp — opens **OpenCaption AI** as a full-panel
+overlay. The caption panel stays mounted underneath, so closing chat returns you
+to exactly the settings and log you left.
+
+- Streaming answers, Markdown (headings, lists, tables, code blocks with copy),
+  regenerate, stop, copy response and timestamps.
+- Multiple conversations with search, rename-free auto titles, delete one, or
+  clear all behind a confirmation. History survives closing the panel.
+- The sidebar collapses for narrow panels; at the 430 px CEP width it opens as a
+  drawer and closes itself when you pick a conversation or a suggestion.
+- Enter sends, Shift+Enter adds a line, and the composer grows as you type.
+- Suggested prompts and a welcome screen start a new chat.
+- The model list is fetched from Groq when you connect, and can be refreshed.
+
+**The Groq key is separate from the Gemini caption key.** Open **AI Chat
+settings** from the overlay, paste a key from
+https://console.groq.com/keys, then **Connect** (or **Verify**) to test it. The
+key is masked by default, can be shown temporarily, replaced or removed, and it
+is never written to the chat transcript or the panel log.
+
+Chat state lives in `%APPDATA%\CaptionAI\chat.json`; caption settings stay in
+`config.json`. Both keys use the same local XOR + base64 obfuscation. That is
+**not encryption** — anyone with access to your Windows account can recover a
+key — and the panel only ever sends the Groq key to `api.groq.com`.
+
+The provider layer is a separate module (`js/groq.js`) behind a small interface,
+so another provider can be added without touching the chat UI or caption
+pipeline.
+
 ## Requirements
 
 | | |
@@ -87,6 +124,7 @@ so every control stays readable. A saved custom theme is stored in
 | OS | Windows 10/11 |
 | ffmpeg | bundled in the installer — nothing to install |
 | Gemini API key | https://aistudio.google.com/apikey (free tier works) |
+| Groq API key | optional, only for AI Chat — https://console.groq.com/keys |
 
 Costs are per transcription, billed to your own key. A one-hour sequence is roughly
 120 short audio requests.
@@ -319,8 +357,10 @@ subtitles.
   language inside the same script (English speech, Spanish captions) relies on the
   model following the instruction; check the first cues before a long run.
 - **API key storage** is local obfuscation, not encryption. Anyone with access to
-  your Windows account can read `%APPDATA%\CaptionAI\config.json`. That is fine for
-  a personal tool; it is why no key is bundled.
+  your Windows account can read `%APPDATA%\CaptionAI\config.json` (Gemini) or
+  `chat.json` (Groq). That is fine for a personal tool; it is why no key is bundled.
+- **AI Chat answers can be wrong.** Treat them like any other assistant output and
+  check anything that matters. Chat history is stored on this computer only.
 
 ## Troubleshooting
 
@@ -375,9 +415,12 @@ extension/
   CSXS/manifest.xml        panel registration, Node + mixed context
   index.html               panel UI
   css/style.css
+  css/chat.css             AI Chat overlay
   js/nodeglue.js           Node built-ins (fs, https, child_process)
   js/CSInterface.js        minimal CEP bridge
   js/config.js             settings in %APPDATA%\CaptionAI\config.json
+  js/groq.js               Groq chat provider (streaming, models, errors)
+  js/chat.js               AI Chat overlay, history in chat.json, Markdown
   js/premiere.js           async wrapper over ExtendScript
   js/audio.js              ffmpeg slicing, PCM assembly, speech envelope
   js/gemini.js             REST calls, JSON schema, retries

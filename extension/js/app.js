@@ -17,7 +17,7 @@
   var activeRun = null;
   var cs = new CSInterface();
 
-  var VERSION = '1.5.5';
+  var VERSION = '1.6.0';
 
   function $(id) { return document.getElementById(id); }
 
@@ -1260,6 +1260,7 @@
 
     document.addEventListener('keydown', function (e) {
       if (e.key !== 'Escape') return;
+      if (typeof Chat !== 'undefined' && Chat.isOpen()) return;
       if (running) {
         e.preventDefault();
         requestCancel();

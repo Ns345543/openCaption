@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>openCaption</title>
   <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/chat.css" />
   <script src="js/theme.js"></script>
 </head>
 <body>
@@ -20,7 +21,16 @@
         <span class="brand-sub">neural subtitle engine</span>
       </span>
     </div>
-    <div class="host" id="hostInfo">OPENCAPTION</div>
+    <div class="host-wrap">
+      <button class="chat-launch" id="chatLaunch" type="button" title="AI Chat"
+              aria-label="AI Chat" aria-haspopup="dialog" aria-controls="chatShell">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+          <path d="M4 5.5h16v11H10l-6 4.2V5.5z" fill="none" stroke="currentColor" stroke-width="1.7" />
+          <path d="M13.2 7.8l.7 1.9 1.9.7-1.9.7-.7 1.9-.7-1.9-1.9-.7 1.9-.7.7-1.9z" fill="currentColor" />
+        </svg>
+      </button>
+      <div class="host" id="hostInfo">OPENCAPTION</div>
+    </div>
   </header>
 
   <nav class="themebar" aria-label="Theme">
@@ -317,6 +327,139 @@
   </main>
 </div>
 
+<!-- ================= AI Chat (separate overlay) ================= -->
+<div class="chat-shell hidden" id="chatShell" role="dialog" aria-modal="true"
+     aria-hidden="true" aria-label="openCaption AI Chat">
+  <aside class="chat-side" id="chatSide" aria-label="Conversations">
+    <div class="chat-side-head">
+      <span class="chat-side-brand">
+        <span class="chat-side-mark" aria-hidden="true">AI</span>
+        <span>OpenCaption AI</span>
+      </span>
+      <button type="button" class="chat-icon-btn" id="chatSideToggle"
+              title="Hide conversations" aria-label="Hide conversations">‹</button>
+    </div>
+
+    <button type="button" class="btn primary chat-new" id="chatNew">
+      <span aria-hidden="true">+</span> New chat
+    </button>
+
+    <input class="chat-search" id="chatSearch" type="search" placeholder="Search chats"
+           aria-label="Search chats" spellcheck="false" />
+
+    <div class="chat-list" id="chatList" role="list"></div>
+
+    <div class="chat-side-foot">
+      <div class="chat-status state-off" id="chatSideStatus">
+        <span class="chat-dot"></span><span id="chatStatusText">Not connected</span>
+      </div>
+      <div class="chat-side-links">
+        <button type="button" class="linkbtn" id="chatSettingsBtn">settings</button>
+        <button type="button" class="linkbtn" id="chatClearAll">clear all</button>
+      </div>
+    </div>
+  </aside>
+
+  <section class="chat-main">
+    <header class="chat-top" id="chatTop">
+      <button type="button" class="chat-icon-btn hidden" id="chatSideShow"
+              title="Show conversations" aria-label="Show conversations">›</button>
+      <div class="chat-title-wrap">
+        <span class="chat-title" id="chatTitle">OpenCaption AI</span>
+        <span class="chat-sub" id="chatSub">Groq</span>
+      </div>
+      <div class="chat-status-pill state-off" id="chatStatusPill" title="Connection status">
+        <span class="chat-dot"></span><span id="chatStatusPillText">Not connected</span>
+      </div>
+      <button type="button" class="chat-icon-btn" id="chatSettingsOpen"
+              title="AI Chat settings" aria-label="AI Chat settings">
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
+          <path d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6z" fill="none" stroke="currentColor" stroke-width="1.6" />
+          <path d="M12 3.2v2.1M12 18.7v2.1M3.2 12h2.1M18.7 12h2.1M5.8 5.8l1.5 1.5M16.7 16.7l1.5 1.5M18.2 5.8l-1.5 1.5M7.3 16.7l-1.5 1.5"
+                fill="none" stroke="currentColor" stroke-width="1.6" />
+        </svg>
+      </button>
+      <button type="button" class="btn sm ghost chat-close" id="chatClose">Close</button>
+    </header>
+
+    <div class="chat-body">
+      <div class="chat-view chat-chat-view" id="chatChatView">
+        <div class="chat-messages" id="chatMessages" aria-live="polite"></div>
+
+        <div class="chat-composer">
+          <textarea id="chatInput" rows="1" placeholder="Message OpenCaption AI…"
+                    spellcheck="false" aria-label="Message OpenCaption AI"></textarea>
+          <div class="chat-composer-row">
+            <span class="chat-composer-hint">Enter to send · Shift+Enter for a new line</span>
+            <button type="button" class="btn sm ghost hidden" id="chatStop">Stop</button>
+            <button type="button" class="btn primary sm" id="chatSend" disabled>Send</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="chat-view chat-settings hidden" id="chatSettingsView">
+        <div class="chat-settings">
+          <div class="chat-settings-head">
+            <button type="button" class="linkbtn" id="chatSettingsBack">← back to chat</button>
+            <span class="chat-settings-provider">Groq</span>
+          </div>
+
+          <h2>AI Chat settings</h2>
+          <p class="chat-settings-copy">
+            This key is separate from the Gemini key used for captions. It is stored only
+            on this computer, obfuscated, in <code>%APPDATA%\CaptionAI\chat.json</code>.
+          </p>
+
+          <section class="chat-settings-card">
+            <div class="chat-settings-title">API connection</div>
+            <div class="chat-conn state-off" id="chatConnState">
+              <span class="chat-dot"></span><span id="chatConnText">Not connected</span>
+            </div>
+
+            <label class="field">
+              <span>Groq API key</span>
+              <div class="input-wrap">
+                <input id="chatApiKey" type="password" placeholder="gsk_…"
+                       spellcheck="false" autocomplete="off" />
+                <button id="chatToggleKey" class="ghost-btn" type="button" title="Show / hide">show</button>
+              </div>
+            </label>
+
+            <div class="row wrap chat-key-actions">
+              <button class="btn primary sm" id="chatConnect" type="button">Connect</button>
+              <button class="btn sm" id="chatVerifyKey" type="button">Verify</button>
+              <button class="btn sm" id="chatSaveKey" type="button">Save key</button>
+              <button class="btn sm ghost" id="chatDisconnect" type="button">Disconnect</button>
+              <button class="btn sm ghost" id="chatRemoveKey" type="button">Remove key</button>
+            </div>
+
+            <p class="hint">Get a key at
+              <a href="https://console.groq.com/keys" data-ext="link">console.groq.com/keys</a>.
+              The key is never written to chat history or logs.</p>
+          </section>
+
+          <section class="chat-settings-card">
+            <div class="chat-settings-title">Model</div>
+            <label class="field">
+              <span class="field-head">Groq model
+                <span class="field-actions">
+                  <button id="chatRefreshModels" class="linkbtn" type="button"
+                          title="Ask Groq which models this key can use">refresh</button>
+                </span>
+              </span>
+              <select id="chatModel" aria-label="Groq model"></select>
+            </label>
+            <p class="hint" id="chatModelHint">Models are fetched from your Groq account when you
+              connect. Changing the model does not clear this conversation.</p>
+          </section>
+
+          <p class="chat-settings-note">AI responses can be wrong. Check anything important.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
 <script src="js/nodeglue.js"></script>
 <script src="js/CSInterface.js"></script>
 <script src="js/config.js"></script>
@@ -327,6 +470,8 @@
 <script src="js/roman.js"></script>
 <script src="js/translate.js"></script>
 <script src="js/update.js"></script>
+<script src="js/groq.js"></script>
+<script src="js/chat.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

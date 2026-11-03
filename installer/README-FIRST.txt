@@ -9,6 +9,7 @@ You need:
   - Windows 10 or 11
   - Premiere Pro 2022 (22.0) or newer
   - A Google Gemini API key: https://aistudio.google.com/apikey  (free tier works)
+  - Optional, for AI Chat: a Groq API key: https://console.groq.com/keys
 
 The panel and ffmpeg are included in this package. Nothing else to download.
 
@@ -65,6 +66,15 @@ area, else the whole sequence. Captions land on a caption track, and the
 imported .srt is filed under a "99 openCaption" bin at the top of your project.
 The files also stay on disk in %APPDATA%\CaptionAI\captions.
 
+AI CHAT (optional)
+------------------
+Click the chat bubble icon in the panel header (next to the openCaption name)
+to open OpenCaption AI. It uses a separate Groq API key: open "AI Chat
+settings" in the overlay, paste a key from https://console.groq.com/keys, and
+press Connect. Chat history and the chat key live in
+%APPDATA%\CaptionAI\chat.json; caption settings and the Gemini key stay in
+config.json. The chat key is sent only to api.groq.com.
+
 
 UPDATES
 -------
@@ -108,5 +118,7 @@ Panel missing from Window > Extensions
 Every request retries 429
   Free-tier rate limit. Set Advanced > Parallel to 1 and Chunk length to 60.
 
-Your API key is stored only on this computer, obfuscated, in
-%APPDATA%\CaptionAI\config.json. It is sent only to Google's Gemini API.
+Your API keys are stored only on this computer, obfuscated, in
+%APPDATA%\CaptionAI\config.json (Gemini) and chat.json (Groq). Each key is sent
+only to its own service: Gemini to Google, Groq to api.groq.com. This is local
+obfuscation, not encryption.

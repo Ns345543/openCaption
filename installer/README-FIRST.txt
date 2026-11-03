@@ -79,6 +79,25 @@ every provider card. Chat history and all chat keys live in
 stay in config.json. A key is sent only to that provider's API host. The chat
 Gemini key is separate from the caption Gemini key.
 
+AI EDITING (1.8.0)
+------------------
+The same chat can make edits to the open sequence, not just answer questions.
+Ask for something like "remove silent parts longer than half a second" or "add a
+five-second adjustment layer above the selected clips". The assistant replies
+with a plan; check the preview card and press Execute. openCaption then runs
+only allowlisted Premiere actions and reports what actually happened.
+
+The assistant cannot run arbitrary code. Unknown actions and unknown parameters
+are refused. Locked tracks, offline media and sequences that do not start at
+00:00:00:00 are refused with a message instead of being edited.
+
+Adjustment layers need a one-time import: Premiere exposes no scripting call to
+create one, so openCaption imports its bundled media-free template
+(templates\adjustment-layer.prproj) into the project the first time. That adds
+one item to the Project panel. AI editing was tested on Premiere Pro 26.5.2;
+export_sequence is not implemented in 1.8.0. Undo may not reverse a multi-step
+plan in one step, so save before large edits.
+
 
 UPDATES
 -------

@@ -110,6 +110,54 @@ to exactly the settings and log you left.
 - DeepSeek/OpenAI-style reasoning text is shown in a collapsible **reasoning**
   block and never mixed into the answer.
 
+### AI editing (1.8.0)
+
+The same chat can now carry out edits on the active sequence instead of only
+describing them. Ask in plain language; the assistant returns a plan, the panel
+validates it, shows a preview card and waits for **Execute**. Results come back
+from Premiere's read-back, not from the model's claims.
+
+| Action | What it does |
+|---|---|
+| `get_active_sequence`, `get_selected_clips`, `get_timeline_context` | Read the sequence, selection or whole timeline |
+| `add_adjustment_layer` | Create a real adjustment layer, aligned to the sequence or the selection |
+| `detect_silence`, `remove_silence` | Measure the actual mix with FFmpeg, preview the ranges, then ripple them out |
+| `remove_timeline_gaps` | Close gaps between clips on the chosen tracks |
+| `split_clip`, `move_clip`, `delete_clip`, `duplicate_clip` | Clip editing; linked audio follows, split halves are paired by source and range |
+| `apply_effect`, `set_effect_parameter` | Add any video effect Premiere lists and set a parameter by its displayed name |
+| `set_audio_volume` | Set clip volume in dB (converted to Premiere's linear level) |
+
+Safety model:
+
+- The model can only name an action from this table. Unknown actions and any
+  parameter not declared for that action are rejected by the planner, again by
+  the validator, and again by the executor before anything reaches Premiere.
+- The assistant never writes or runs JavaScript, shell commands or ExtendScript.
+  It produces JSON that the panel maps to fixed handlers.
+- Destructive steps (`remove_silence`, `delete_clip`) always show a confirmation
+  card first. The card lists the affected tracks, clips and time ranges.
+- Locked tracks, offline media, a non-zero sequence start, ambiguous selections
+  and out-of-range times stop the action with a message instead of guessing.
+- A failed step stops the plan; the summary reports which steps ran and which
+  failed. Earlier steps stay applied and the card says so.
+
+Limitations specific to editing:
+
+- **Zero-based sequences only.** If a sequence starts at 01:00:00:00 the panel
+  refuses to edit it rather than risk cutting the wrong place.
+- **Adjustment layers need the bundled template.** Premiere 26.5 exposes no
+  scripting call that creates one, so openCaption imports
+  `extension/templates/adjustment-layer.prproj` once per project and reuses its
+  single media-free item. The import adds one item to the Project panel; it
+  contains no media.
+- **Undo is not guaranteed to be one step.** Premiere groups scripted edits
+  inconsistently. The preview card warns when a plan has several steps.
+- **`export_sequence` is not implemented** in 1.8.0 and is not offered.
+- Effects must already exist in the installed Premiere build; the panel matches
+  names from Premiere's own effect list.
+- Editing actions were tested against Premiere Pro 26.5.2. Other builds may
+  expose different QE calls.
+
 ### Provider setup
 
 Open **AI Chat settings** (gear icon) and expand a provider. Paste a key, press
@@ -404,6 +452,10 @@ subtitles.
   not as working. No reply is ever faked.
 - **AI Chat answers can be wrong.** Treat them like any other assistant output and
   check anything that matters. Chat history is stored on this computer only.
+- **AI edits run real commands.** They only run from the allowlist and only after
+  you press **Execute**, but they change the open project. Work on a saved
+  project, read the preview card, and check the timeline afterwards. Premiere's
+  undo history may not reverse a multi-step plan in one step.
 
 ## Troubleshooting
 
@@ -465,8 +517,17 @@ extension/
   js/providers.js          seven AI Chat provider adapters (streaming, models, errors)
   js/groq.js               Groq transport used by the Groq adapter
   js/chat.js               AI Chat overlay, provider state, history in chat.json
+  js/actionRegistry.js     allowlisted editing actions and parameter schemas
+  js/actionPlanner.js      model → validated plan (or answer)
+  js/actionValidator.js    strict schema checks for plans
+  js/actionExecutor.js     runs a validated plan, stops on first failure
+  js/actionPreview.js      in-chat preview/confirmation card
+  js/premiereContext.js    reads sequence/selection context for the planner
+  js/silenceDetector.js    sequence-mix silence analysis via ffmpeg
   js/premiere.js           async wrapper over ExtendScript
   js/audio.js              ffmpeg slicing, PCM assembly, speech envelope
+  jsx/actions.jsx          ExtendScript action handlers (allowlist only)
+  templates/adjustment-layer.prproj  media-free adjustment-layer item
   js/gemini.js             REST calls, JSON schema, retries
   js/srt.js                word timing, cue clean-up, wrapping, SRT output
   js/roman.js              Devanagari → Roman Hinglish

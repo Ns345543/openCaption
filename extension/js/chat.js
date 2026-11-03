@@ -30,6 +30,7 @@ var Chat = (function () {
     settings: false,
     generating: false,
     run: null,
+    executingPlan: null,
     conv: null,
     provider: LEGACY_PROVIDER,
     conns: {},
@@ -547,6 +548,66 @@ var Chat = (function () {
     return { input: input, output: output, total: total };
   }
 
+  function cleanAction(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    if (typeof ActionValidator === 'undefined') return null;
+
+    var checked = ActionValidator.validatePlan({
+      kind: 'plan',
+      title: raw.title,
+      summary: raw.summary,
+      steps: raw.steps
+    });
+    if (!checked.ok) return null;
+
+    var status = raw.status;
+    if (['pending', 'running', 'done', 'failed', 'cancelled'].indexOf(status) === -1) status = 'pending';
+    var interrupted = status === 'running';
+    if (interrupted) status = 'failed';
+
+    var warnings = checked.warnings.slice();
+    if (Array.isArray(raw.warnings)) {
+      for (var w = 0; w < raw.warnings.length && w < 20; w++) {
+        var text = typeof raw.warnings[w] === 'string' ? raw.warnings[w].slice(0, 400) : '';
+        if (text && warnings.indexOf(text) === -1) warnings.push(text);
+      }
+    }
+
+    var results = [];
+    if (Array.isArray(raw.results)) {
+      for (var r = 0; r < raw.results.length && r < checked.plan.steps.length; r++) {
+        var item = raw.results[r];
+        if (!item || typeof item !== 'object') continue;
+        var index = Number(item.index);
+        if (!isFinite(index) || index < 0 || index >= checked.plan.steps.length) continue;
+        results.push({
+          index: index,
+          action: String(item.action || checked.plan.steps[index].action),
+          label: String(item.label || ''),
+          ok: !!item.ok,
+          error: String(item.error || '').slice(0, 1000),
+          result: item.result && typeof item.result === 'object' ? item.result : null,
+          startedAt: Number(item.startedAt) || 0,
+          finishedAt: Number(item.finishedAt) || 0
+        });
+      }
+    }
+
+    return {
+      id: String(raw.id || newId('a')),
+      title: checked.plan.title,
+      summary: checked.plan.summary,
+      steps: checked.plan.steps,
+      status: status,
+      warnings: warnings,
+      results: results,
+      error: interrupted ? 'The panel closed before this plan finished.' : String(raw.error || '').slice(0, 1200),
+      createdAt: Number(raw.createdAt) || Date.now(),
+      startedAt: Number(raw.startedAt) || 0,
+      finishedAt: Number(raw.finishedAt) || 0
+    };
+  }
+
   function cleanConversation(raw, fallbackProvider, fallbackModel) {
     if (!raw || typeof raw !== 'object') return null;
     var id = String(raw.id || '');
@@ -570,7 +631,7 @@ var Chat = (function () {
       if (!role) continue;
       var content = typeof m.content === 'string' ? m.content : '';
       if (!content && role === 'user') continue;
-      messages.push({
+      var message = {
         id: String(m.id || newId()),
         role: role,
         content: content,
@@ -580,7 +641,11 @@ var Chat = (function () {
         reasoning: typeof m.reasoning === 'string' ? m.reasoning : '',
         usage: cleanUsage(m.usage),
         finishReason: String(m.finishReason || '')
-      });
+      };
+      if (m.local === true) message.local = true;
+      var action = cleanAction(m.action);
+      if (action) message.action = action;
+      messages.push(message);
     }
 
     return {
@@ -645,6 +710,22 @@ var Chat = (function () {
     return out;
   }
 
+  function serializeAction(action) {
+    return {
+      id: action.id,
+      title: action.title,
+      summary: action.summary,
+      steps: action.steps,
+      status: action.status,
+      warnings: action.warnings || [],
+      results: action.results || [],
+      error: action.error || '',
+      createdAt: action.createdAt,
+      startedAt: action.startedAt,
+      finishedAt: action.finishedAt
+    };
+  }
+
   function serializeStore() {
     var providers = {};
     for (var i = 0; i < PROVIDER_ORDER.length; i++) {
@@ -678,6 +759,8 @@ var Chat = (function () {
           if (m.reasoning) out.reasoning = m.reasoning;
           if (m.usage) out.usage = m.usage;
           if (m.finishReason) out.finishReason = m.finishReason;
+          if (m.local) out.local = true;
+          if (m.action) out.action = serializeAction(m.action);
           return out;
         })
       };
@@ -1338,7 +1421,7 @@ var Chat = (function () {
     });
     actions.appendChild(copy);
 
-    if (canRegenerate) {
+    if (canRegenerate && !msg.local) {
       var again = document.createElement('button');
       again.type = 'button';
       again.className = 'msg-action';
@@ -1371,6 +1454,7 @@ var Chat = (function () {
         '<details class="msg-reason hidden" data-reason><summary>reasoning</summary>' +
         '<div class="msg-reason-body" data-reason-body></div></details>' +
         '<div class="msg-bubble md" data-bubble></div>' +
+        '<div class="action-slot" data-action-slot></div>' +
         '<div class="msg-meta hidden" data-meta></div>' +
         '<div class="msg-actions"></div>' +
       '</div>';
@@ -1386,8 +1470,31 @@ var Chat = (function () {
       bubble.innerHTML = renderMarkdown(msg.content);
       bindMarkdown(bubble);
       addActions(root, msg, canRegenerate);
+      mountActionCard(root, msg);
     }
     return root;
+  }
+
+  function mountActionCard(root, msg) {
+    if (!root || !msg) return;
+    var slot = root.querySelector('[data-action-slot]');
+    if (!slot) return;
+    if (!msg.action || typeof ActionPreview === 'undefined') {
+      slot.innerHTML = '';
+      return;
+    }
+    ActionPreview.mount(slot, msg.action, {
+      onExecute: function () { executePlan(msg); },
+      onCancel: function () { cancelPlan(msg); },
+      onStop: function () { stopPlanExecution(); }
+    });
+  }
+
+  function refreshActionCard(msg) {
+    if (!msg || !msg.id || !els.chatMessages) return;
+    var root = els.chatMessages.querySelector('[data-msg="' + msg.id + '"]');
+    if (root) mountActionCard(root, msg);
+    scrollBottom();
   }
 
   function isLastAssistant(conv, index) {
@@ -1434,6 +1541,7 @@ var Chat = (function () {
     fillMeta(el, msg);
     fillReasoning(el, msg);
     addActions(el, msg, canRegenerate);
+    mountActionCard(el, msg);
   }
 
   function streamBubble() {
@@ -1546,6 +1654,10 @@ var Chat = (function () {
   }
 
   function selectConversation(id) {
+    if (S.executingPlan) {
+      notice('Wait for the current editing plan to finish, or press Stop in its card.', 'warn');
+      return;
+    }
     if (S.generating) stopGeneration();
     var conv = conversationById(id);
     if (!conv) return;
@@ -1575,6 +1687,10 @@ var Chat = (function () {
   }
 
   function newChat() {
+    if (S.executingPlan) {
+      notice('Wait for the current editing plan to finish, or press Stop in its card.', 'warn');
+      return;
+    }
     if (S.generating) stopGeneration();
     S.conv = null;
     store.activeId = '';
@@ -1589,6 +1705,10 @@ var Chat = (function () {
   }
 
   function deleteConversation(id) {
+    if (S.executingPlan) {
+      notice('Wait for the current editing plan to finish, or press Stop in its card.', 'warn');
+      return;
+    }
     var conv = conversationById(id);
     if (!conv) return;
     if (!window.confirm('Delete "' + conv.title + '"? This cannot be undone.')) return;
@@ -1606,6 +1726,10 @@ var Chat = (function () {
   }
 
   function clearAll() {
+    if (S.executingPlan) {
+      notice('Wait for the current editing plan to finish, or press Stop in its card.', 'warn');
+      return;
+    }
     if (!store.conversations.length) {
       notice('There is no chat history to clear.', 'info');
       return;
@@ -1711,7 +1835,8 @@ var Chat = (function () {
     saveSoon();
     renderList();
     renderConversation(conv);
-    startCompletion(conv);
+    if (isEditRequest(text)) startEditCompletion(conv);
+    else startCompletion(conv);
   }
 
   function startCompletion(conv) {
@@ -1759,6 +1884,203 @@ var Chat = (function () {
 
     setGenerating(true);
     perform(S.run, buildMessages(conv), false);
+  }
+
+  function lastUserText(conv) {
+    for (var i = conv.messages.length - 1; i >= 0; i--) {
+      if (conv.messages[i].role === 'user' && conv.messages[i].content) return conv.messages[i].content;
+    }
+    return '';
+  }
+
+  /**
+   * Decides whether a message is an imperative timeline request rather than a
+   * question. This is deliberately conservative: an ambiguous message goes to
+   * normal chat, where the model can ask a follow-up instead of guessing.
+   */
+  function isEditRequest(text) {
+    var s = String(text || '').trim().toLowerCase();
+    if (!s || s.length > 4000) return false;
+
+    var verbs = 'add|remove|delete|cut|split|move|apply|duplicate|trim|export|close|insert|set|change|make|create|put|raise|lower|detect|find|select|fix|replace|swap|shift|drop|mute|unmute|rename|undo';
+    var direct = new RegExp('^\\s*(please\\s+)?(' + verbs + ')\\b').test(s);
+
+    if (!direct && /\b(how|what|why|explain|tell me|describe|difference|should i)\b/.test(s)) {
+      return false;
+    }
+    if (direct) return true;
+    if (new RegExp('\\b(can|could|would|will)\\s+you\\s+(please\\s+)?(' + verbs + ')\\b').test(s)) return true;
+    if (/\b(remove|delete|cut|close|fill)\b.{0,45}\b(silence|silences|silent|pauses|gaps)\b/.test(s)) return true;
+    if (/\b(add|create|insert)\b.{0,45}\b(adjustment layer|effect|blur|title|subtitle|caption)\b/.test(s)) return true;
+    return false;
+  }
+
+  function startEditCompletion(conv) {
+    if (S.generating) return;
+    if (!conv.messages.some(function (m) { return m.role === 'user' && m.content; })) return;
+
+    if (typeof PremiereContext === 'undefined' || typeof ActionPlanner === 'undefined' ||
+        typeof ActionExecutor === 'undefined' || typeof ActionPreview === 'undefined') {
+      notice('The editing engine did not load. Restart Premiere or check the panel manifest.', 'err');
+      return;
+    }
+
+    var p = provById(S.provider);
+    var ps = provState(S.provider);
+    var model = currentModel();
+    if (!p || !ps.apiKey || !model) {
+      notice('Connect a provider and choose a model before asking the assistant to edit.', 'warn');
+      openSettings();
+      return;
+    }
+
+    var assistant = {
+      id: newId(),
+      role: 'assistant',
+      content: '',
+      reasoning: '',
+      ts: Date.now(),
+      provider: S.provider,
+      model: model,
+      usage: null,
+      finishReason: '',
+      action: null
+    };
+    conv.messages.push(assistant);
+    conv.provider = S.provider;
+    conv.model = model;
+
+    var el = renderMessage(assistant, false, true);
+    var bubble = el.querySelector('[data-bubble]');
+    if (bubble) bubble.textContent = 'Reading the active sequence…';
+    els.chatMessages.appendChild(el);
+    scrollBottom();
+
+    var run = {
+      mode: 'plan',
+      token: { cancelled: false },
+      conv: conv,
+      assistant: assistant,
+      el: el,
+      got: true,
+      settled: false,
+      provider: S.provider,
+      model: model,
+      context: null
+    };
+    S.run = run;
+    setGenerating(true);
+
+    var requestText = lastUserText(conv);
+    PremiereContext.read({
+      includeClips: true,
+      includeEffects: PremiereContext.needsEffectList(requestText)
+    }).catch(function (err) {
+      err.sequenceContext = true;
+      throw err;
+    }).then(function (context) {
+      if (run.settled) return null;
+      if (run.token.cancelled) throw { cancelled: true };
+      run.context = context;
+
+      var stream = run.el ? run.el.querySelector('[data-bubble]') : null;
+      if (stream) stream.textContent = 'Planning the edit…';
+
+      return ActionPlanner.plan({
+        adapter: p,
+        apiKey: ps.apiKey,
+        model: model,
+        messages: conv.messages,
+        contextText: PremiereContext.format(context),
+        token: run.token
+      });
+    }).then(function (result) {
+      if (run.settled || !result) return;
+      if (run.token.cancelled) { finishAborted(run); return; }
+      finishPlanned(run, result);
+    }).catch(function (err) {
+      if (run.settled) return;
+      if (run.token.cancelled || (err && err.cancelled)) { finishAborted(run); return; }
+      if (err && err.sequenceContext) {
+        finishPlanMessage(run, 'I could not read the active sequence, so no actions were prepared.\n\n' +
+          String(err.message || err) + '\n\nOpen a sequence in the Timeline and try again.');
+        return;
+      }
+      finishError(run, err);
+    });
+  }
+
+  function finishPlanMessage(run, text) {
+    if (run.settled) return;
+    run.assistant.content = text;
+    run.assistant.ts = Date.now();
+    run.assistant.provider = run.provider;
+    run.conv.updatedAt = Date.now();
+    finalizeAssistant(run.el, run.assistant, true);
+    saveNow();
+    renderList();
+    updateHeader();
+    finishRun(run);
+    scrollBottom();
+  }
+
+  function makeActionRecord(plan, warnings) {
+    return {
+      id: newId('a'),
+      title: plan.title,
+      summary: plan.summary,
+      steps: plan.steps,
+      status: 'pending',
+      warnings: warnings || [],
+      results: [],
+      error: '',
+      createdAt: Date.now(),
+      startedAt: 0,
+      finishedAt: 0
+    };
+  }
+
+  function finishPlanned(run, result) {
+    if (run.settled) return;
+    if (!result.ok) {
+      var details = '';
+      if (result.details && result.details.length) {
+        details = '\n\n' + result.details.slice(0, 6).map(function (line) { return '- ' + line; }).join('\n');
+      }
+      finishPlanMessage(run, (result.error || 'The editing plan could not be prepared.') +
+        details + '\n\nNo actions were prepared, so nothing was changed.');
+      return;
+    }
+
+    var assistant = run.assistant;
+    assistant.ts = Date.now();
+    assistant.provider = run.provider;
+    assistant.model = result.model || run.model;
+    if (result.usage) assistant.usage = result.usage;
+    if (result.finishReason) assistant.finishReason = result.finishReason;
+
+    if (result.kind === 'plan') {
+      var label = PremiereContext.sequenceLabel(run.context);
+      assistant.content = result.plan.summary ||
+        ('I prepared a ' + result.plan.steps.length + '-step editing plan for "' + label +
+          '". Review it below, then press Execute.');
+      assistant.action = makeActionRecord(result.plan, result.warnings);
+      assistant.local = false;
+    } else {
+      assistant.content = result.text;
+      assistant.action = null;
+      if (result.warnings && result.warnings.length) {
+        assistant.content += '\n\n*' + result.warnings[0] + '*';
+      }
+    }
+
+    run.conv.updatedAt = Date.now();
+    finalizeAssistant(run.el, assistant, true);
+    saveNow();
+    renderList();
+    updateHeader();
+    finishRun(run);
+    scrollBottom();
   }
 
   function onDelta(run, full) {
@@ -1920,6 +2242,103 @@ var Chat = (function () {
     }
   }
 
+  /* ------------------------------------------------------------ action execution */
+
+  function planErrorMessage(out) {
+    for (var i = 0; i < (out.results || []).length; i++) {
+      if (!out.results[i].ok) return out.results[i].error || 'The step did not complete.';
+    }
+    return out.cancelled ? 'The plan was stopped.' : 'The plan did not complete.';
+  }
+
+  function cancelPlan(msg) {
+    if (!msg || !msg.action || msg.action.status !== 'pending') return;
+    msg.action.status = 'cancelled';
+    msg.action.finishedAt = Date.now();
+    saveNow();
+    refreshActionCard(msg);
+    notice('Plan cancelled. Nothing was changed.', 'info');
+  }
+
+  function stopPlanExecution() {
+    if (!S.executingPlan) return;
+    S.executingPlan.token.cancelled = true;
+    notice('Stopping after the current step…', 'info');
+  }
+
+  function executePlan(msg) {
+    if (!msg || !msg.action) return;
+    var action = msg.action;
+    if (action.status !== 'pending') return;
+    if (S.executingPlan) {
+      notice('Another editing plan is already running.', 'warn');
+      return;
+    }
+    var conv = S.conv;
+    if (!conv) return;
+
+    var token = { cancelled: false };
+    S.executingPlan = { token: token, msg: msg, conv: conv };
+
+    action.status = 'running';
+    action.results = [];
+    action.error = '';
+    action.startedAt = Date.now();
+    action.finishedAt = 0;
+    action.runningIndex = -1;
+    action.analysisProgress = '';
+    saveSoon();
+    refreshActionCard(msg);
+
+    ActionExecutor.execute(action, {
+      token: token,
+      onProgress: function (index, state) {
+        action.runningIndex = state === 'running' ? index : -1;
+        refreshActionCard(msg);
+      },
+      onAnalysis: function (fraction) {
+        action.analysisProgress = 'Analyzing the sequence audio… ' + Math.round(fraction * 100) + '%';
+        refreshActionCard(msg);
+      }
+    }).then(function (out) {
+      action.status = out.ok ? 'done' : (out.cancelled ? 'cancelled' : 'failed');
+      action.results = out.results || [];
+      action.error = out.ok ? '' : planErrorMessage(out);
+      action.finishedAt = Date.now();
+      action.runningIndex = -1;
+      action.analysisProgress = '';
+
+      var resultMessage = {
+        id: newId(),
+        role: 'assistant',
+        content: out.summary,
+        ts: Date.now(),
+        provider: msg.provider,
+        model: msg.model,
+        local: true
+      };
+      conv.messages.push(resultMessage);
+      conv.updatedAt = Date.now();
+      S.executingPlan = null;
+
+      saveNow();
+      renderList();
+      if (S.conv === conv) renderConversation(conv);
+    }).catch(function (err) {
+      action.status = (err && err.cancelled) ? 'cancelled' : 'failed';
+      action.error = String((err && err.message) || err);
+      action.finishedAt = Date.now();
+      action.runningIndex = -1;
+      action.analysisProgress = '';
+      S.executingPlan = null;
+
+      saveNow();
+      renderList();
+      refreshActionCard(msg);
+      notice('The editing plan stopped: ' + action.error, 'err');
+    });
+  }
+
   function regenerate() {
     if (S.generating || !S.conv) return;
     var conv = S.conv;
@@ -1929,10 +2348,14 @@ var Chat = (function () {
     }
     if (at < 0) return;
 
+    var removed = conv.messages[at];
     conv.messages.splice(at, 1);
     saveSoon();
     renderConversation(conv);
-    startCompletion(conv);
+
+    var wantsPlan = !!(removed && removed.action) || isEditRequest(lastUserText(conv));
+    if (wantsPlan) startEditCompletion(conv);
+    else startCompletion(conv);
   }
 
   /* -------------------------------------------------------------- provider cards */
@@ -2271,6 +2694,10 @@ var Chat = (function () {
     _serializeStore: serializeStore,
     _selectProvider: selectProvider,
     _providerState: provState,
-    _applyModels: applyModels
+    _applyModels: applyModels,
+    _isEditRequest: isEditRequest,
+    _cleanAction: cleanAction,
+    _executePlan: executePlan,
+    _cancelPlan: cancelPlan
   };
 })();

@@ -1225,3 +1225,191 @@
   outline: 1px solid var(--accent);
   outline-offset: 2px;
 }
+
+/* ---------- action plan card ---------- */
+
+.action-slot:empty { display: none; }
+
+.action-card {
+  margin-top: 3px;
+  padding: 9px 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.action-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.action-badge {
+  flex: 0 0 auto;
+  padding: 2px 5px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: .7px;
+  text-transform: uppercase;
+}
+
+.action-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+  letter-spacing: .1px;
+}
+
+.action-state {
+  flex: 0 0 auto;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 7.5px;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+
+.action-state.state-running { color: var(--accent); }
+.action-state.state-done { color: var(--ok); }
+.action-state.state-failed { color: var(--warn); }
+
+.action-summary {
+  margin: 7px 0 0;
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.action-warning {
+  margin: 7px 0 0;
+  padding: 2px 0 2px 8px;
+  border-left: 2px solid var(--warn);
+  color: var(--warn);
+  font-size: 9.5px;
+  line-height: 1.45;
+}
+
+.action-steps {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.action-step {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.action-step-dot {
+  width: 7px;
+  height: 7px;
+  margin-top: 4px;
+  flex: 0 0 auto;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+}
+
+.action-step[data-step-state="running"] .action-step-dot {
+  border-color: var(--accent);
+  background: var(--accent);
+  animation: blink 1s steps(1) infinite;
+}
+.action-step[data-step-state="done"] .action-step-dot {
+  border-color: var(--ok);
+  background: var(--ok);
+}
+.action-step[data-step-state="failed"] .action-step-dot {
+  border-color: var(--warn);
+  background: var(--warn);
+}
+.action-step[data-step-state="cancelled"] .action-step-dot {
+  border-color: var(--muted-2);
+  background: var(--muted-2);
+}
+
+.action-step-body { min-width: 0; }
+
+.action-step-label {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.action-step-detail,
+.action-step-reason {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.action-step-reason {
+  color: var(--muted-2);
+  font-size: 9.5px;
+  font-style: italic;
+}
+
+.action-step-result {
+  color: var(--ok);
+  font-size: 9.5px;
+  overflow-wrap: anywhere;
+}
+
+.action-step-error {
+  color: var(--warn);
+  font-size: 9.5px;
+  overflow-wrap: anywhere;
+}
+
+.action-progress {
+  margin-top: 7px;
+  color: var(--accent);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 8.5px;
+  letter-spacing: .4px;
+}
+
+.action-warnings { margin-top: 7px; }
+
+.action-warning-line {
+  color: var(--warn);
+  font-size: 9.5px;
+  line-height: 1.45;
+}
+
+.action-error {
+  margin: 7px 0 0;
+  color: var(--warn);
+  font-size: 9.5px;
+  overflow-wrap: anywhere;
+}
+
+.action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.action-outcome {
+  color: var(--muted-2);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 7.5px;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+}
+
+.action-card .btn:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}

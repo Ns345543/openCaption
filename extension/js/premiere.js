@@ -39,10 +39,13 @@ var Premiere = (function () {
     // $.fileName is not the script path. Both loads are idempotent.
     var jsonPath = target + '/jsx/json2.js';
     var hostPath = target + '/jsx/host.jsx';
+    var actionsPath = target + '/jsx/actions.jsx';
     // JSON.stringify escapes spaces/quotes/Unicode correctly for evalScript;
     // building the expression by hand broke on some install paths.
+    // actions.jsx reuses helpers defined by host.jsx, so it must load second.
     var script = '$.evalFile(' + JSON.stringify(jsonPath) + '); ' +
-                 '$.evalFile(' + JSON.stringify(hostPath) + '); "host-ok"';
+                 '$.evalFile(' + JSON.stringify(hostPath) + '); ' +
+                 '$.evalFile(' + JSON.stringify(actionsPath) + '); "host-ok"';
 
     return new Promise(function (resolve) {
       cs.evalScript(script, function (res) {
@@ -53,10 +56,16 @@ var Premiere = (function () {
   }
 
   function describeMissing(fn, reject) {
-    cs.evalScript('String(typeof CaptionAI)', function (kind) {
-      if (kind === 'undefined') {
+    cs.evalScript('String(typeof CaptionAI) + "|" + String(typeof CaptionActions)', function (kind) {
+      var parts = String(kind || '').split('|');
+      if (parts[0] === 'undefined') {
         reject(new Error(
           'host.jsx did not load in Premiere, so the panel cannot talk to the timeline. ' +
+          'Restart Premiere Pro (reopening the panel is not enough for ExtendScript).'
+        ));
+      } else if (parts[1] === 'undefined') {
+        reject(new Error(
+          'actions.jsx did not load in Premiere, so the editing agent is unavailable. ' +
           'Restart Premiere Pro (reopening the panel is not enough for ExtendScript).'
         ));
       } else {
@@ -68,12 +77,10 @@ var Premiere = (function () {
     });
   }
 
-  function call(fn, args, attempt) {
+  function run(script, fn, attempt) {
     attempt = attempt || 0;
 
     return new Promise(function (resolve, reject) {
-      var script = 'CaptionAI.' + fn + '(' + JSON.stringify(args || {}) + ')';
-
       cs.evalScript(script, function (result) {
         var failed = (result === 'EvalScript error.' || result === undefined || result === null);
 
@@ -82,7 +89,7 @@ var Premiere = (function () {
           // too early fails once and then succeeds.
           if (attempt < 3) {
             setTimeout(function () {
-              call(fn, args, attempt + 1).then(resolve, reject);
+              run(script, fn, attempt + 1).then(resolve, reject);
             }, 250 * (attempt + 1));
             return;
           }
@@ -107,8 +114,27 @@ var Premiere = (function () {
     });
   }
 
+  function call(fn, args, attempt) {
+    return run('CaptionAI.' + fn + '(' + JSON.stringify(args || {}) + ')', fn, attempt);
+  }
+
+  /**
+   * Sends one whitelisted action to actions.jsx. The action name is checked
+   * again on the host side, so a name that is not in the registry can never
+   * reach the timeline even if the panel-side validator is bypassed.
+   */
+  function action(name, params, attempt) {
+    var payload = JSON.stringify({ name: String(name || ''), params: params || {} });
+    return run(
+      'CaptionActions.dispatch(' + JSON.stringify(payload) + ')',
+      'action:' + name,
+      attempt
+    );
+  }
+
   return {
     call: call,
+    action: action,
     ensureHost: ensureHost,
     ping: function () { return call('ping'); },
     getSequenceInfo: function (scope) { return call('getSequenceInfo', { scope: scope }); },

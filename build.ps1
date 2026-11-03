@@ -196,7 +196,7 @@ Step 'Staging files'
 if (Test-Path -LiteralPath $Stage) { Remove-Item -LiteralPath $Stage -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $Stage | Out-Null
 
-$items = @('index.html', 'css', 'js', 'jsx', 'CSXS', 'tools')
+$items = @('index.html', 'css', 'js', 'jsx', 'CSXS', 'tools', 'templates')
 foreach ($item in $items) {
     $from = Join-Path $ExtDir $item
     if (-not (Test-Path -LiteralPath $from)) { throw "Missing from extension: $item" }

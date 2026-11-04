@@ -145,8 +145,15 @@ var Updater = (function () {
     }
   }
 
+  /** Hash a large ZIP without loading it into memory. */
   function sha256File(file) {
-    return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+    return new Promise(function (resolve, reject) {
+      var hash = crypto.createHash('sha256');
+      var stream = fs.createReadStream(file);
+      stream.on('data', function (chunk) { hash.update(chunk); });
+      stream.on('error', reject);
+      stream.on('end', function () { resolve(hash.digest('hex')); });
+    });
   }
 
   function fmtBytes(bytes) {
@@ -158,25 +165,84 @@ var Updater = (function () {
 
   /* --------------------------------------------------------------- cache */
 
+  /* Bump when the cached release shape changes. v2: assets carry the GitHub
+     asset id, which the fallback download needs. */
+  var CACHE_SCHEMA = 2;
+
   function readCache() {
     var raw = readText(CACHE_FILE);
     if (!raw) return null;
     try {
       var data = JSON.parse(raw);
-      return (data && data.checkedAt && data.release) ? data : null;
+      if (!data || data.schema !== CACHE_SCHEMA || !data.checkedAt || !data.release) return null;
+      return data;
     } catch (e) {
       return null;
     }
   }
 
   function writeCache(release) {
-    writeJson(CACHE_FILE, { checkedAt: Date.now(), release: release });
+    writeJson(CACHE_FILE, { schema: CACHE_SCHEMA, checkedAt: Date.now(), release: release });
   }
 
   /* ---------------------------------------------------------------- http */
 
+  /*
+   * Reliability notes (1.8.1):
+   *
+   * A release asset download is not one request. github.com answers with a 302
+   * to release-assets.githubusercontent.com, a signed URL on a separate CDN
+   * host that expires after about an hour. Two consequences:
+   *
+   *   - A retry must restart at the official github.com release URL so it gets
+   *     a fresh signature; replaying the redirect target can fail with 403.
+   *   - The old code relied on req.setTimeout(), which did not cover the TCP
+   *     connect / TLS phase reliably. A filtered or slow CDN therefore produced
+   *     "connect ETIMEDOUT 185.199.x.x:443" after the OS SYN timeout and
+   *     aborted the update with no retry. Every attempt here has its own
+   *     connect deadline instead.
+   *
+   * Downloads stream to "<name>.part", are size-checked, then renamed. Nothing
+   * is installed unless the SHA-256 published by GitHub matches.
+   */
+
+  var NET = {
+    connectTimeout: 20000,                 // connect + TLS + response headers
+    idleTimeout: 45000,                    // no bytes received while downloading
+    downloadTimeout: 15 * 60 * 1000,       // whole ZIP, including slow links
+    textTimeout: 60000,                    // SHA256SUMS.txt / small responses
+    maxAttempts: 4,
+    retryBase: 1000,
+    retryMax: 15000,
+    maxRedirects: 8
+  };
+
+  var RETRYABLE_CODES = {
+    ETIMEDOUT: 1, ECONNRESET: 1, ECONNREFUSED: 1, ECONNABORTED: 1,
+    EPIPE: 1, ENOTFOUND: 1, EAI_AGAIN: 1, EAI_FAIL: 1,
+    EHOSTUNREACH: 1, ENETUNREACH: 1, ENETDOWN: 1, ESOCKETTIMEDOUT: 1
+  };
+  var RETRYABLE_STATUS = { 408: 1, 425: 1, 429: 1, 500: 1, 502: 1, 503: 1, 504: 1 };
+
+  var BASE_HEADERS = {
+    'User-Agent': USER_AGENT,
+    'Accept-Encoding': 'identity'
+  };
+  var RELEASE_HEADERS = {
+    'User-Agent': USER_AGENT,
+    'Accept': 'application/octet-stream',
+    'Accept-Encoding': 'identity'
+  };
+  var API_ASSET_HEADERS = {
+    'User-Agent': USER_AGENT,
+    'Accept': 'application/octet-stream',
+    'X-GitHub-Api-Version': '2022-11-28',
+    'Accept-Encoding': 'identity'
+  };
+
   function resolveLocation(base, location) {
     if (/^[a-z]+:\/\//i.test(location)) return location;
+    if (location.indexOf('//') === 0) return 'https:' + location;
     if (location.charAt(0) === '/') {
       var m = base.match(/^([a-z]+:\/\/[^\/]+)/i);
       return (m ? m[1] : 'https://github.com') + location;
@@ -184,7 +250,86 @@ var Updater = (function () {
     return base.replace(/[^\/]*$/, '') + location;
   }
 
-  function apiError(status, body) {
+  function hostOf(url) {
+    var m = String(url || '').match(/^[a-z]+:\/\/[^\/:?#]+/i);
+    return m ? m[0].replace(/^[a-z]+:\/\//i, '') : 'GitHub';
+  }
+
+  function makeError(code, message, extra) {
+    var err = new Error(message);
+    err.code = code || 'EUPDATE';
+    if (extra) {
+      for (var k in extra) {
+        if (Object.prototype.hasOwnProperty.call(extra, k)) err[k] = extra[k];
+      }
+    }
+    return err;
+  }
+
+  function retryable(err) {
+    if (!err) return false;
+    if (err.retryable === true) return true;
+    if (err.retryable === false) return false;
+    return !!(RETRYABLE_CODES[err.code] || RETRYABLE_STATUS[err.status]);
+  }
+
+  function netError(cause, stage) {
+    var code = (cause && cause.code) || 'ENETWORK';
+    var text = (cause && cause.message) ? cause.message : String(cause);
+    var err = makeError(code, text, { stage: stage || 'network' });
+    err.technical = text;
+    return err;
+  }
+
+  /*
+   * Cancellation. A run owns one token; every socket wait, retry sleep and
+   * fallback step checks it. Aborting only touches the staging files — the
+   * installed extension is never part of a download.
+   */
+  var currentRun = null;
+
+  function newRun() {
+    var token = { canceled: false, aborters: [] };
+    token.register = function (fn) {
+      if (token.canceled) {
+        try { fn(); } catch (e) { /* ignore */ }
+        return function () {};
+      }
+      token.aborters.push(fn);
+      return function () {
+        var index = token.aborters.indexOf(fn);
+        if (index >= 0) token.aborters.splice(index, 1);
+      };
+    };
+    token.cancel = function () {
+      if (token.canceled) return false;
+      token.canceled = true;
+      var list = token.aborters;
+      token.aborters = [];
+      for (var i = 0; i < list.length; i++) {
+        try { list[i](); } catch (e) { /* ignore */ }
+      }
+      return true;
+    };
+    return token;
+  }
+
+  function cancelError(stage) {
+    return makeError('ECANCELED', 'The update was cancelled.', {
+      retryable: false, canceled: true, stage: stage || 'download'
+    });
+  }
+
+  function parseRetryAfter(value) {
+    if (!value) return 0;
+    var seconds = parseInt(value, 10);
+    if (!isNaN(seconds) && seconds >= 0) return Math.min(seconds * 1000, 30000);
+    var when = Date.parse(value);
+    if (!isNaN(when)) return Math.max(0, Math.min(when - Date.now(), 30000));
+    return 0;
+  }
+
+  function apiError(status, body, retryAfter, url) {
     var message = 'GitHub returned HTTP ' + status;
     if (status === 403 || status === 429) {
       message = 'GitHub rate limit reached. Try again later.';
@@ -196,130 +341,477 @@ var Updater = (function () {
       var parsed = JSON.parse(body);
       if (parsed && parsed.message) detail = parsed.message;
     } catch (e) { /* not JSON */ }
-    return new Error(detail ? message + ' (' + detail + ')' : message);
+    var err = makeError('EHTTP' + status, detail ? message + ' (' + detail + ')' : message, {
+      status: status,
+      stage: 'http',
+      retryable: !!RETRYABLE_STATUS[status]
+    });
+    if (status === 403) {
+      var wait = parseRetryAfter(retryAfter);
+      if (wait > 0) {
+        err.retryable = true;
+        err.retryAfterMs = wait;
+      }
+    } else if (retryAfter) {
+      err.retryAfterMs = parseRetryAfter(retryAfter);
+    }
+    err.technical = 'HTTP ' + status + (detail ? ' - ' + detail : '') + ' from ' + hostOf(url);
+    return err;
   }
 
-  function getJson(url, redirects) {
-    redirects = redirects || 0;
-    return new Promise(function (resolve, reject) {
-      var req = https.get(url, {
-        headers: {
-          'User-Agent': USER_AGENT,
-          'Accept': 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28'
-        }
-      }, function (res) {
-        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          res.resume();
-          if (redirects >= 5) return reject(new Error('Too many redirects from GitHub.'));
-          var next = resolveLocation(url, res.headers.location);
-          return getJson(next, redirects + 1).then(resolve, reject);
-        }
-        if (res.statusCode !== 200) {
-          var body = '';
-          res.setEncoding('utf8');
-          res.on('data', function (chunk) {
-            if (body.length < 4000) body += chunk;
-          });
-          res.on('end', function () { reject(apiError(res.statusCode, body)); });
-          return;
-        }
-        var chunks = [];
-        res.on('data', function (chunk) { chunks.push(chunk); });
-        res.on('end', function () {
-          try {
-            resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
-          } catch (e) {
-            reject(new Error('GitHub returned an unreadable response.'));
-          }
-        });
-      });
-      req.on('error', function (e) { reject(new Error('Network error: ' + e.message)); });
-      req.setTimeout(30000, function () { req.destroy(new Error('Network timeout.')); });
+  function humanMessage(err) {
+    if (!err) return 'The update failed.';
+    if (err.userMessage) return err.userMessage;
+    var code = String(err.code || '');
+    if (code === 'ECANCELED') {
+      return 'The update was cancelled. Your installed version was left unchanged.';
+    }
+    if (code === 'ETIMEDOUT') {
+      return 'GitHub did not answer in time. The connection may be slow, filtered by a firewall, or temporarily unavailable.';
+    }
+    if (code === 'ENOTFOUND' || code === 'EAI_AGAIN' || code === 'EAI_FAIL') {
+      return 'GitHub could not be reached. Check the internet connection or VPN, then retry.';
+    }
+    if (code === 'ECONNRESET' || code === 'EPIPE' || code === 'ECONNABORTED') {
+      return 'The connection to GitHub was interrupted before the download finished.';
+    }
+    if (code === 'ENETUNREACH' || code === 'EHOSTUNREACH' || code === 'ENETDOWN') {
+      return 'The network is unavailable right now. Reconnect, then retry.';
+    }
+    if (code === 'EINCOMPLETE') {
+      return 'The download was incomplete, so it was discarded. Retry to fetch it again.';
+    }
+    if (code === 'ECHECKSUM') {
+      return 'The downloaded package did not match the SHA-256 checksum published by GitHub, so it was discarded.';
+    }
+    if (code === 'ENOCHECKSUM') {
+      return 'This release does not publish a usable SHA-256 checksum, so it cannot be installed automatically.';
+    }
+    if (code === 'EZIP' || code === 'EVALIDATE') return err.message;
+    if (err.status === 429) return 'GitHub is limiting downloads right now. Wait a minute, then retry.';
+    if (err.status >= 500) return 'GitHub\'s download server had a temporary problem. Retry in a moment.';
+    if (err.status === 403) return 'GitHub refused the download, usually because of a temporary rate limit. Retry in a few minutes.';
+    return err.message || 'The update failed.';
+  }
+
+  function sleep(ms, token) {
+    return new Promise(function (resolve) {
+      var timer = null;
+      var unregister = null;
+      function done() {
+        if (timer) { clearTimeout(timer); timer = null; }
+        if (unregister) unregister();
+        resolve();
+      }
+      timer = setTimeout(done, ms);
+      if (token) unregister = token.register(done);
     });
   }
 
-  function downloadFile(url, destination, onProgress, redirects) {
+  /** Exponential backoff with full jitter, bounded, and never below Retry-After. */
+  function backoffDelay(attempt, retryAfterMs) {
+    var exp = Math.min(NET.retryMax, NET.retryBase * Math.pow(2, Math.max(0, attempt - 1)));
+    var jittered = Math.round(exp * (0.6 + Math.random() * 0.8));
+    return Math.min(NET.retryMax, Math.max(jittered, retryAfterMs || 0));
+  }
+
+  function withRetries(work, options) {
+    options = options || {};
+    var max = options.maxAttempts || NET.maxAttempts;
+    var attempt = 0;
+
+    function run() {
+      if (options.token && options.token.canceled) return Promise.reject(cancelError(options.stage));
+      attempt += 1;
+      return Promise.resolve().then(function () { return work(attempt); })
+        .catch(function (err) {
+          if (options.token && options.token.canceled) throw cancelError(options.stage);
+          if (attempt >= max || !retryable(err)) {
+            if (err && !err.attempts) err.attempts = attempt;
+            throw err;
+          }
+          var delay = backoffDelay(attempt, err.retryAfterMs);
+          if (typeof options.onRetry === 'function') {
+            try { options.onRetry(err, attempt, max, delay); } catch (e) { /* ignore */ }
+          }
+          return sleep(delay, options.token).then(run);
+        });
+    }
+
+    return run();
+  }
+
+  function transportFor(url) {
+    if (/^http:\/\//i.test(url) && NODE.http) return NODE.http;
+    return https;
+  }
+
+  /**
+   * Start a GET and resolve as soon as a 2xx response with a readable body
+   * arrives. Redirects are followed, but only the final response is returned.
+   * The returned promise rejects on connect/TLS/response-header timeouts.
+   */
+  function openStream(url, options, redirects) {
+    options = options || {};
     redirects = redirects || 0;
+
     return new Promise(function (resolve, reject) {
-      ensureDir(path.dirname(destination));
-      var req = https.get(url, {
-        headers: { 'User-Agent': USER_AGENT, 'Accept': 'application/octet-stream' }
-      }, function (res) {
-        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          res.resume();
-          if (redirects >= 8) return reject(new Error('Too many redirects.'));
-          var next = resolveLocation(url, res.headers.location);
-          return downloadFile(next, destination, onProgress, redirects + 1).then(resolve, reject);
+      var settled = false;
+      var timer = null;
+      var req = null;
+      var unregister = null;
+
+      function releaseToken() {
+        if (unregister) { unregister(); unregister = null; }
+      }
+
+      function fail(err) {
+        if (settled) return;
+        settled = true;
+        if (timer) { clearTimeout(timer); timer = null; }
+        releaseToken();
+        try { if (req) req.destroy(); } catch (e) { /* ignore */ }
+        reject(err);
+      }
+
+      if (options.token && options.token.canceled) return fail(cancelError('connect'));
+
+      try {
+        req = transportFor(url).get(url, {
+          agent: false,
+          headers: options.headers || BASE_HEADERS
+        }, function (res) {
+          if (timer) { clearTimeout(timer); timer = null; }
+          var status = res.statusCode;
+
+          if (status >= 300 && status < 400 && res.headers.location) {
+            res.resume();
+            if (redirects >= NET.maxRedirects) {
+              return fail(makeError('EREDIRECT', 'GitHub redirected too many times.', {
+                retryable: false, stage: 'redirect'
+              }));
+            }
+            var next = resolveLocation(url, res.headers.location);
+            settled = true;
+            releaseToken();
+            openStream(next, options, redirects + 1).then(resolve, reject);
+            return;
+          }
+
+          if (status < 200 || status >= 300) {
+            var body = '';
+            res.setEncoding('utf8');
+            res.on('data', function (chunk) { if (body.length < 4000) body += chunk; });
+            res.on('error', function (err) { fail(netError(err, 'http')); });
+            res.on('end', function () {
+              fail(apiError(status, body, res.headers['retry-after'], url));
+            });
+            return;
+          }
+
+          settled = true;
+          releaseToken();
+          resolve({ res: res, req: req, url: url, host: hostOf(url) });
+        });
+
+        req.on('error', function (err) { fail(netError(err, 'connect')); });
+
+        if (options.token) {
+          unregister = options.token.register(function () { fail(cancelError('connect')); });
+          if (settled) return;
         }
-        if (res.statusCode !== 200) {
-          var body = '';
-          res.setEncoding('utf8');
-          res.on('data', function (chunk) { if (body.length < 2000) body += chunk; });
-          res.on('end', function () { reject(apiError(res.statusCode, body)); });
+
+        timer = setTimeout(function () {
+          var seconds = Math.max(1, Math.round((options.responseTimeout || NET.connectTimeout) / 1000));
+          var err = makeError('ETIMEDOUT',
+            'Could not connect to ' + hostOf(url) + ' within ' + seconds + ' seconds.', {
+              retryable: true, stage: 'connect'
+            });
+          err.technical = 'connect ETIMEDOUT ' + hostOf(url) + ' (no response after ' + seconds + 's)';
+          fail(err);
+        }, options.responseTimeout || NET.connectTimeout);
+      } catch (err) {
+        fail(netError(err, 'request'));
+      }
+    });
+  }
+
+  /** Read a bounded body; rejects if the server stalls mid-response. */
+  function readBody(res, options) {
+    options = options || {};
+    var idle = options.idleTimeout || NET.idleTimeout;
+    return new Promise(function (resolve, reject) {
+      var chunks = [];
+      var size = 0;
+      var settled = false;
+      var timer = null;
+      var unregister = null;
+
+      function releaseToken() {
+        if (unregister) { unregister(); unregister = null; }
+      }
+
+      function stop(err) {
+        if (settled) return;
+        settled = true;
+        if (timer) { clearTimeout(timer); timer = null; }
+        releaseToken();
+        try { res.destroy(); } catch (e) { /* ignore */ }
+        reject(err);
+      }
+
+      function arm() {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(function () {
+          stop(makeError('ETIMEDOUT', 'GitHub stopped sending data.', {
+            retryable: true, stage: 'read'
+          }));
+        }, idle);
+      }
+
+      arm();
+      if (options.token) {
+        unregister = options.token.register(function () { stop(cancelError('read')); });
+        if (settled) return;
+      }
+      res.on('data', function (chunk) {
+        size += chunk.length;
+        if (size > (options.maxBytes || 4 * 1024 * 1024)) {
+          return stop(makeError('ETOOBIG', 'GitHub returned more data than expected.', {
+            retryable: false, stage: 'read'
+          }));
+        }
+        chunks.push(chunk);
+        arm();
+      });
+      res.on('error', function (err) { stop(netError(err, 'read')); });
+      res.on('end', function () {
+        if (settled) return;
+        settled = true;
+        if (timer) { clearTimeout(timer); timer = null; }
+        releaseToken();
+        resolve(Buffer.concat(chunks));
+      });
+    });
+  }
+
+  function httpGetBuffer(url, options) {
+    options = options || {};
+    return withRetries(function () {
+      return openStream(url, {
+        headers: options.headers,
+        responseTimeout: options.responseTimeout || NET.connectTimeout,
+        token: options.token
+      }).then(function (handle) {
+        return readBody(handle.res, {
+          maxBytes: options.maxBytes,
+          idleTimeout: options.idleTimeout || NET.idleTimeout,
+          token: options.token
+        }).then(function (body) {
+          return { body: body, url: handle.url, host: handle.host };
+        });
+      });
+    }, {
+      maxAttempts: options.maxAttempts,
+      token: options.token,
+      onRetry: options.onRetry
+    });
+  }
+
+  function getJson(url) {
+    return httpGetBuffer(url, {
+      headers: {
+        'User-Agent': USER_AGENT,
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'Accept-Encoding': 'identity'
+      },
+      maxBytes: 4 * 1024 * 1024,
+      idleTimeout: NET.textTimeout,
+      maxAttempts: 3
+    }).then(function (result) {
+      try {
+        return JSON.parse(result.body.toString('utf8'));
+      } catch (e) {
+        throw makeError('EBADJSON', 'GitHub returned an unreadable response.', {
+          stage: 'check', retryable: true
+        });
+      }
+    });
+  }
+
+  function downloadText(url, headers, token) {
+    return httpGetBuffer(url, {
+      headers: headers || RELEASE_HEADERS,
+      maxBytes: 1024 * 1024,
+      idleTimeout: NET.textTimeout,
+      token: token
+    }).then(function (result) {
+      return result.body.toString('utf8');
+    });
+  }
+
+  /**
+   * One download attempt. Bytes go to "<destination>.part"; the file is only
+   * renamed into place after the byte count and content length agree.
+   */
+  function downloadAttempt(url, destination, options) {
+    options = options || {};
+
+    return new Promise(function (resolve, reject) {
+      var part = destination + '.part';
+      var res = null;
+      var req = null;
+      var out = null;
+      var total = 0;
+      var received = 0;
+      var settled = false;
+      var lastReport = 0;
+      var idleTimer = null;
+      var overallTimer = null;
+      var idleMs = options.idleTimeout || NET.idleTimeout;
+      var unregister = null;
+
+      ensureDir(path.dirname(destination));
+      rmrf(part);
+
+      function clearTimers() {
+        if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+        if (overallTimer) { clearTimeout(overallTimer); overallTimer = null; }
+      }
+
+      function releaseToken() {
+        if (unregister) { unregister(); unregister = null; }
+      }
+
+      function deletePart(done) {
+        var called = false;
+        function once() {
+          if (called) return;
+          called = true;
+          rmrf(part);
+          done();
+        }
+        if (!out) return once();
+        // Windows cannot delete a file that still has an open handle, so wait
+        // for the write stream to close before removing the partial file.
+        out.once('close', once);
+        try { out.destroy(); } catch (e) { once(); }
+        setTimeout(once, 1000);
+      }
+
+      function fail(err) {
+        if (settled) return;
+        settled = true;
+        clearTimers();
+        releaseToken();
+        try { if (res) res.destroy(); } catch (e) { /* ignore */ }
+        try { if (req) req.destroy(); } catch (e2) { /* ignore */ }
+        deletePart(function () { reject(err); });
+      }
+
+      function incomplete() {
+        var detail = total
+          ? 'The download stopped after ' + fmtBytes(received) + ' of ' + fmtBytes(total) + '.'
+          : 'The download ended before the whole file arrived.';
+        return makeError('EINCOMPLETE', detail, { retryable: true, stage: 'download' });
+      }
+
+      function armIdle() {
+        if (idleTimer) clearTimeout(idleTimer);
+        idleTimer = setTimeout(function () {
+          fail(makeError('ETIMEDOUT',
+            'The download stalled (no data for ' + Math.round(idleMs / 1000) + ' seconds).', {
+              retryable: true, stage: 'download'
+            }));
+        }, idleMs);
+      }
+
+      function finish() {
+        if (settled) return;
+        if (total > 0 && received !== total) return fail(incomplete());
+        if (options.expectedSize && received !== options.expectedSize) return fail(incomplete());
+        if (received === 0) return fail(incomplete());
+
+        settled = true;
+        clearTimers();
+        releaseToken();
+        try {
+          rmrf(destination);
+          fs.renameSync(part, destination);
+        } catch (e) {
+          deletePart(function () {
+            reject(makeError('ESAVE', 'The download could not be saved: ' + e.message, {
+              retryable: false, stage: 'save'
+            }));
+          });
           return;
         }
-        var total = parseInt(res.headers['content-length'], 10) || 0;
-        var received = 0;
-        var lastReport = 0;
-        var out = fs.createWriteStream(destination);
-        var finished = false;
+        resolve({ bytes: received, total: total || received, url: url });
+      }
 
-        function fail(err) {
-          if (finished) return;
-          finished = true;
-          try { out.destroy(); } catch (e) { /* ignore */ }
-          rmrf(destination);
-          reject(err);
+      if (options.token) {
+        if (options.token.canceled) return fail(cancelError('download'));
+        unregister = options.token.register(function () { fail(cancelError('download')); });
+        if (settled) return;
+      }
+
+      openStream(url, {
+        headers: options.headers,
+        responseTimeout: options.responseTimeout || NET.connectTimeout,
+        token: options.token
+      }).then(function (handle) {
+        res = handle.res;
+        req = handle.req;
+
+        var encoding = String(res.headers['content-encoding'] || '').toLowerCase();
+        if (encoding && encoding !== 'identity') {
+          return fail(makeError('EENCODING', 'GitHub compressed the download unexpectedly.', {
+            retryable: true, stage: 'download'
+          }));
         }
+
+        total = parseInt(res.headers['content-length'], 10) || 0;
+        if (options.expectedSize && total && total !== options.expectedSize) {
+          // A proxy or CDN answered with the wrong body; do not write it.
+          return fail(makeError('ESIZE', 'GitHub returned an unexpected file size.', {
+            retryable: true, stage: 'download'
+          }));
+        }
+
+        out = fs.createWriteStream(part);
+        armIdle();
 
         res.on('data', function (chunk) {
           received += chunk.length;
+          armIdle();
           var now = Date.now();
-          if (onProgress && (now - lastReport > 180 || received === total)) {
+          if (typeof options.onProgress === 'function' &&
+              (now - lastReport > 150 || (total && received >= total))) {
             lastReport = now;
-            try { onProgress(received, total); } catch (e2) { /* ignore */ }
+            try { options.onProgress(received, total); } catch (e) { /* ignore */ }
           }
         });
-        res.on('error', fail);
-        out.on('error', fail);
-        out.on('finish', function () {
-          if (finished) return;
-          finished = true;
-          resolve({ bytes: received, total: total });
+        res.on('aborted', function () { fail(incomplete()); });
+        res.on('error', function (err) { fail(netError(err, 'download')); });
+        out.on('error', function (err) {
+          fail(makeError('EWRITE', 'Could not write the update file: ' + err.message, {
+            retryable: false, stage: 'write'
+          }));
         });
-        res.pipe(out);
-      });
-      req.on('error', function (e) { reject(new Error('Download failed: ' + e.message)); });
-      req.setTimeout(60000, function () { req.destroy(new Error('Download stalled (no data for 60 seconds).')); });
-    });
-  }
+        out.on('finish', finish);
 
-  function downloadText(url, redirects) {
-    redirects = redirects || 0;
-    return new Promise(function (resolve, reject) {
-      var req = https.get(url, {
-        headers: { 'User-Agent': USER_AGENT, 'Accept': 'application/octet-stream' }
-      }, function (res) {
-        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          res.resume();
-          if (redirects >= 8) return reject(new Error('Too many redirects.'));
-          var next = resolveLocation(url, res.headers.location);
-          return downloadText(next, redirects + 1).then(resolve, reject);
+        if (options.overallTimeout) {
+          overallTimer = setTimeout(function () {
+            fail(makeError('ETIMEDOUT',
+              'The download did not finish within ' + Math.round(options.overallTimeout / 60000) + ' minutes.', {
+                retryable: true, stage: 'download'
+              }));
+          }, options.overallTimeout);
         }
-        if (res.statusCode !== 200) {
-          res.resume();
-          return reject(apiError(res.statusCode, ''));
-        }
-        var body = '';
-        res.setEncoding('utf8');
-        res.on('data', function (chunk) {
-          if (body.length < 1024 * 1024) body += chunk;
-        });
-        res.on('end', function () { resolve(body); });
-      });
-      req.on('error', function (e) { reject(new Error('Download failed: ' + e.message)); });
-      req.setTimeout(30000, function () { req.destroy(new Error('Network timeout.')); });
+
+        res.pipe(out);
+      }, fail);
     });
   }
 
@@ -343,6 +835,10 @@ var Updater = (function () {
       assets.push({
         name: a.name,
         url: a.browser_download_url,
+        /* The API asset endpoint is an alternate route to the same bytes when
+           the browser download URL cannot be reached. */
+        apiUrl: a.id ? ('https://api.github.com/repos/' + REPO + '/releases/assets/' + a.id) : '',
+        id: a.id || 0,
         size: a.size || 0,
         sha256: digest.indexOf('sha256:') === 0 ? digest.slice(7) : ''
       });
@@ -393,13 +889,32 @@ var Updater = (function () {
     return '';
   }
 
-  function expectedSha256(release, asset) {
+  /**
+   * The checksum is never optional: an update without one is refused instead
+   * of installed. Prefer the digest GitHub reports for the asset itself, then
+   * the release's SHA256SUMS.txt.
+   */
+  function expectedSha256(release, asset, onEvent, token) {
+    if (token && token.canceled) return Promise.reject(cancelError('checksum'));
     if (asset.sha256) return Promise.resolve(asset.sha256.toLowerCase());
-    if (!release.sums) return Promise.resolve('');
-    return downloadText(release.sums.url).then(function (text) {
-      return parseSums(text, asset.name);
-    }).catch(function () {
-      return '';
+    if (!release.sums) {
+      return Promise.reject(makeError('ENOCHECKSUM',
+        'This release does not publish a SHA-256 checksum, so it was not installed. Use the release page.', {
+          retryable: false, stage: 'checksum'
+        }));
+    }
+    if (typeof onEvent === 'function') {
+      onEvent({ phase: 'connecting', detail: 'Fetching the published checksum' });
+    }
+    return downloadText(release.sums.url, null, token).then(function (text) {
+      var sha = parseSums(text, asset.name);
+      if (!sha) {
+        throw makeError('ENOCHECKSUM',
+          'SHA256SUMS.txt does not list ' + asset.name + ', so the download cannot be verified.', {
+            retryable: false, stage: 'checksum'
+          });
+      }
+      return sha;
     });
   }
 
@@ -624,17 +1139,39 @@ var Updater = (function () {
     }
   }
 
+  function psQuote(value) {
+    return "'" + String(value).replace(/'/g, "''") + "'";
+  }
+
+  /**
+   * Extract into the staging folder after refusing entries that would escape
+   * it (an absolute path or ".."), then let Expand-Archive write the files.
+   */
   function extractZip(powershell, zipFile, destination) {
-    var command = "$ErrorActionPreference='Stop'; Expand-Archive -LiteralPath '" +
-      String(zipFile).replace(/'/g, "''") + "' -DestinationPath '" +
-      String(destination).replace(/'/g, "''") + "' -Force";
+    var command =
+      "$ErrorActionPreference='Stop'; " +
+      "Add-Type -AssemblyName System.IO.Compression.FileSystem; " +
+      "$zip=[IO.Compression.ZipFile]::OpenRead(" + psQuote(zipFile) + "); " +
+      "try { foreach ($e in $zip.Entries) { " +
+      "$n=$e.FullName.Replace('\\','/'); " +
+      "if ($n.StartsWith('/') -or $n -match '^[A-Za-z]:' -or $n.Contains('../')) { " +
+      "throw ('Unsafe path in update package: ' + $n) } } } finally { $zip.Dispose() }; " +
+      "Expand-Archive -LiteralPath " + psQuote(zipFile) +
+      " -DestinationPath " + psQuote(destination) + " -Force";
+
     return new Promise(function (resolve, reject) {
       cp.execFile(powershell, [
         '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command
       ], { windowsHide: true, timeout: 10 * 60 * 1000, maxBuffer: 4 * 1024 * 1024 }, function (err, stdout, stderr) {
         if (err) {
           var detail = String(stderr || err.message || '').trim();
-          return reject(new Error('Could not extract the update' + (detail ? ': ' + detail : '.')));
+          if (detail.length > 400) detail = detail.slice(0, 400) + '...';
+          var failure = makeError('EZIP',
+            'Could not extract the update' + (detail ? ': ' + detail : '.'), {
+              retryable: false, stage: 'install'
+            });
+          failure.technical = detail || 'Expand-Archive failed';
+          return reject(failure);
         }
         resolve(true);
       });
@@ -687,64 +1224,213 @@ var Updater = (function () {
 
   /* ------------------------------------------------------------ preparing */
 
-  function prepare(release, onProgress) {
-    var cap = capability();
-    if (!cap.ok) return Promise.reject(new Error(cap.reason));
-    if (!release || !release.zip) {
-      return Promise.reject(new Error('This release has no Windows package. Use the release page instead.'));
+  function installError(message) {
+    return makeError('EVALIDATE', message, { retryable: false, stage: 'install' });
+  }
+
+  /**
+   * Official routes to the same bytes. The release download URL is tried
+   * first; the asset API is a second official GitHub endpoint that answers
+   * with its own redirect. Retries always restart at the source URL so the
+   * signed CDN link is refreshed instead of replayed after it expires.
+   */
+  function downloadSources(release) {
+    var sources = [];
+    function add(label, url, headers) {
+      if (!url) return;
+      for (var i = 0; i < sources.length; i++) {
+        if (sources[i].url === url) return;
+      }
+      sources.push({ label: label, url: url, headers: headers });
+    }
+    add('GitHub release', release.zip.url, RELEASE_HEADERS);
+    add('GitHub asset API', release.zip.apiUrl, API_ASSET_HEADERS);
+    return sources;
+  }
+
+  function downloadReleaseZip(release, zipFile, options) {
+    options = options || {};
+    var sources = downloadSources(release);
+    var failures = [];
+    var index = 0;
+    var lastError = null;
+
+    function next() {
+      if (options.token && options.token.canceled) throw cancelError('download');
+      if (index >= sources.length) {
+        var err = makeError('EDOWNLOAD', 'The update could not be downloaded from GitHub.', {
+          retryable: true, stage: 'download'
+        });
+        err.userMessage = lastError
+          ? humanMessage(lastError)
+          : 'The update could not be downloaded from GitHub. Try again, or open the release page.';
+        err.technical = failures.join(' | ') || err.message;
+        throw err;
+      }
+
+      var source = sources[index];
+      index += 1;
+      if (typeof options.onEvent === 'function') {
+        options.onEvent({
+          phase: 'connecting',
+          source: source.label,
+          host: hostOf(source.url)
+        });
+      }
+
+      return withRetries(function () {
+        return downloadAttempt(source.url, zipFile, {
+          headers: source.headers,
+          expectedSize: release.zip.size || 0,
+          overallTimeout: NET.downloadTimeout,
+          token: options.token,
+          onProgress: options.onProgress
+        });
+      }, {
+        maxAttempts: NET.maxAttempts,
+        token: options.token,
+        onRetry: function (failure, attempt, max, delay) {
+          if (typeof options.onEvent !== 'function') return;
+          options.onEvent({
+            phase: 'retrying',
+            attempt: Math.min(attempt + 1, max),
+            attempts: max,
+            reason: humanMessage(failure),
+            detail: humanMessage(failure),
+            technical: failure.technical || failure.message,
+            delayMs: delay
+          });
+        }
+      }).catch(function (failure) {
+        // A cancel is final: do not spend the fallback source on it.
+        if ((options.token && options.token.canceled) || failure.canceled) {
+          throw failure.canceled ? failure : cancelError('download');
+        }
+        lastError = failure;
+        failures.push(source.label + ': ' + (failure.technical || failure.message));
+        return next();
+      });
     }
 
-    var version = release.version;
+    return Promise.resolve().then(next);
+  }
+
+  /**
+   * Download, verify, stage and validate. The running installation is never
+   * touched here; installPrepared() moves the staged folder into place later,
+   * only after Premiere has closed.
+   */
+  function prepare(release, onEvent) {
+    function emit(phase, extra) {
+      if (typeof onEvent !== 'function') return;
+      var event;
+      if (phase && typeof phase === 'object') {
+        event = phase;
+      } else {
+        event = { phase: phase };
+        if (extra) {
+          for (var k in extra) {
+            if (Object.prototype.hasOwnProperty.call(extra, k)) event[k] = extra[k];
+          }
+        }
+      }
+      try { onEvent(event); } catch (e) { /* ignore */ }
+    }
+
+    var cap = capability();
+    var version = release && release.version;
+    var releaseUrl = (release && release.htmlUrl) || RELEASES_URL;
+
+    function rejectWith(err) {
+      if (!(err instanceof Error)) err = makeError('EUPDATE', String(err));
+      if (!err.userMessage) err.userMessage = humanMessage(err);
+      if (!err.technical) err.technical = err.message;
+      if (!err.releaseUrl) err.releaseUrl = releaseUrl;
+      err.kind = err.stage === 'install' ? 'install' : 'download';
+      return Promise.reject(err);
+    }
+
+    if (!cap.ok) {
+      return rejectWith(makeError('ECONFIG', cap.reason, { retryable: false, stage: 'config' }));
+    }
+    if (!release || !release.zip) {
+      return rejectWith(makeError('ENOPACKAGE',
+        'This release has no Windows package. Use the release page instead.', {
+          retryable: false, stage: 'install'
+        }));
+    }
+
     var dir = preparedPath(version);
     var zipFile = path.join(dir, 'package.zip');
     var extractDir = path.join(dir, 'extract');
-
-    function report(pct, label) {
-      if (typeof onProgress !== 'function') return;
-      try { onProgress(Math.max(0, Math.min(100, Math.round(pct))), label); } catch (e) { /* ignore */ }
-    }
+    var expectedSha = '';
 
     var existing = findPrepared(version);
     if (existing) {
-      report(100, 'Already downloaded and verified.');
+      emit('ready', { version: version });
       return Promise.resolve(existing);
     }
 
     if (!ensureDir(dir)) {
-      return Promise.reject(new Error('Could not create the update folder in %APPDATA%\\CaptionAI.'));
+      return rejectWith(makeError('ESTAGE',
+        'Could not create the update folder in %APPDATA%\\CaptionAI.', {
+          retryable: false, stage: 'install'
+        }));
     }
 
-    report(0, 'Downloading ' + release.zip.name + ' (' + fmtBytes(release.zip.size) + ')');
+    var token = newRun();
+    currentRun = token;
 
-    return downloadFile(release.zip.url, zipFile, function (received, total) {
-      var pct = total ? (received / total) * 96 : 0;
-      report(pct, 'Downloading ' + fmtBytes(received) + (total ? ' of ' + fmtBytes(total) : ''));
+    return expectedSha256(release, release.zip, emit, token).then(function (sha) {
+      if (token.canceled) throw cancelError('checksum');
+      expectedSha = sha;
+      return downloadReleaseZip(release, zipFile, {
+        token: token,
+        onEvent: emit,
+        onProgress: function (received, total) {
+          emit('downloading', {
+            received: received,
+            total: total,
+            percent: total ? Math.min(99, Math.round((received / total) * 100)) : 0
+          });
+        }
+      });
     }).then(function () {
-      report(97, 'Verifying SHA-256 checksum');
-      return expectedSha256(release, release.zip);
-    }).then(function (expected) {
-      if (!expected) {
-        throw new Error('This release has no checksum, so it was not installed. Use the release page.');
-      }
-      var actual = sha256File(zipFile);
-      if (actual.toLowerCase() !== expected.toLowerCase()) {
+      if (token.canceled) throw cancelError('download');
+      emit('verifying', { percent: 100 });
+      return sha256File(zipFile);
+    }).then(function (actual) {
+      if (token.canceled) throw cancelError('verify');
+      if (String(actual).toLowerCase() !== String(expectedSha).toLowerCase()) {
         rmrf(zipFile);
-        throw new Error('Checksum mismatch: the download was corrupted. Try again.');
+        throw makeError('ECHECKSUM',
+          'The downloaded package did not match the published SHA-256 checksum, so it was discarded.', {
+            retryable: false, stage: 'checksum'
+          });
       }
-      report(98, 'Extracting');
+
+      emit('installing', {});
       rmrf(extractDir);
+      if (!ensureDir(extractDir)) {
+        throw makeError('ESTAGE', 'Could not create the staging folder.', {
+          retryable: false, stage: 'install'
+        });
+      }
       return extractZip(cap.powershell, zipFile, extractDir);
     }).then(function () {
+      if (token.canceled) throw cancelError('install');
       var source = findExtensionRoot(extractDir, 0);
-      if (!source) throw new Error('The downloaded package did not contain the openCaption extension.');
+      if (!source) {
+        throw installError('The downloaded package did not contain the openCaption extension.');
+      }
       if (!looksComplete(source)) {
-        throw new Error('The downloaded package is incomplete (a panel file or ffmpeg.exe is missing).');
+        throw installError('The downloaded package is incomplete (a panel file or ffmpeg.exe is missing).');
       }
 
       var found = manifestVersion(source);
-      if (!found) throw new Error('The downloaded package has no version in its manifest.');
+      if (!found) throw installError('The downloaded package has no version in its manifest.');
       if (compareVersions(found, version) !== 0) {
-        throw new Error('The package contains version ' + found + ' instead of ' + version + '.');
+        throw installError('The package contains version ' + found + ' instead of ' + version + '.');
       }
 
       rmrf(zipFile);
@@ -752,19 +1438,40 @@ var Updater = (function () {
       writeJson(path.join(dir, 'prepared.json'), {
         version: version,
         preparedAt: new Date().toISOString(),
+        size: release.zip.size || 0,
+        sha256: expectedSha,
         notes: release.notes,
         htmlUrl: release.htmlUrl
       });
 
-      report(100, 'Downloaded and verified');
+      emit('ready', { version: version });
       return {
         version: version,
         source: source,
         root: cap.root,
         dir: dir,
-        prepared: true
+        prepared: true,
+        sha256: expectedSha
       };
+    }).catch(function (err) {
+      // Only the staging area is cleaned up. The installed panel stays as is.
+      rmrf(zipFile);
+      rmrf(extractDir);
+      return rejectWith(err);
+    }).then(function (result) {
+      currentRun = null;
+      return result;
+    }, function (err) {
+      currentRun = null;
+      throw err;
     });
+  }
+
+  /** Abort the running prepare(): sockets close, retries stop, temp files go. */
+  function cancel() {
+    if (!currentRun) return { ok: false, error: 'No update download is in progress.' };
+    if (!currentRun.cancel()) return { ok: false, error: 'The update is already being cancelled.' };
+    return { ok: true };
   }
 
   /* ------------------------------------------------------------- helper */
@@ -1020,6 +1727,7 @@ var Updater = (function () {
     compareVersions: compareVersions,
     check: check,
     prepare: prepare,
+    cancel: cancel,
     installPrepared: installPrepared,
     readResult: readResult,
     capability: capability,
@@ -1032,6 +1740,9 @@ var Updater = (function () {
     _manifestVersion: manifestVersion,
     _sha256File: sha256File,
     _extractZip: extractZip,
-    _helperScript: helperScript
+    _helperScript: helperScript,
+    _net: NET,
+    _humanMessage: humanMessage,
+    _backoffDelay: backoffDelay
   };
 })();

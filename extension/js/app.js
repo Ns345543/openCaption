@@ -17,7 +17,7 @@
   var activeRun = null;
   var cs = new CSInterface();
 
-  var VERSION = '1.8.0';
+  var VERSION = '1.8.1';
 
   function $(id) { return document.getElementById(id); }
 
@@ -995,9 +995,56 @@
   var updateBusy = false;
   var updateDismissed = false;
   var updateLaunched = false;
+  var updatePercent = 0;
 
   function updateSub(text) {
     if (els.updateSub) els.updateSub.textContent = text;
+  }
+
+  function fmtUpdateBytes(bytes) {
+    bytes = Number(bytes) || 0;
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  function setUpdateDetail(text) {
+    if (!els.updateDetail) return;
+    els.updateDetail.textContent = text || '';
+    els.updateDetail.classList.toggle('hidden', !text);
+  }
+
+  function setUpdateMeter(percent, indeterminate) {
+    if (!els.updateMeter) return;
+    updatePercent = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
+    els.updateMeter.classList.remove('hidden');
+    var track = els.updateFill.parentNode;
+    if (track) track.classList.toggle('indeterminate', !!indeterminate);
+    els.updateFill.style.width = indeterminate ? '' : updatePercent + '%';
+    els.updatePct.textContent = indeterminate ? '—' : updatePercent + '%';
+  }
+
+  function hideUpdateMeter() {
+    if (!els.updateMeter) return;
+    els.updateMeter.classList.add('hidden');
+    var track = els.updateFill.parentNode;
+    if (track) track.classList.remove('indeterminate');
+    els.updateFill.style.width = '0%';
+    els.updatePct.textContent = '0%';
+    updatePercent = 0;
+  }
+
+  function resetUpdateChrome() {
+    els.updateBar.classList.remove('failed');
+    els.updateNow.classList.remove('hidden');
+    els.updateNotesToggle.classList.remove('hidden');
+    els.updateRelease.classList.add('hidden');
+    els.updateCancel.classList.add('hidden');
+    els.updateCancel.disabled = false;
+    els.updateCancel.textContent = 'Cancel';
+    els.updateLater.textContent = 'Later';
+    setUpdateDetail('');
+    hideUpdateMeter();
   }
 
   function showUpdate(res) {
@@ -1005,6 +1052,7 @@
     updateDismissed = false;
 
     var latest = res.latest || {};
+    resetUpdateChrome();
     els.updateTitle.textContent = 'Update available — v' + (latest.version || '');
     updateSub(res.prepared
       ? 'v' + latest.version + ' is downloaded and verified. Close Premiere Pro to finish installing.'
@@ -1013,9 +1061,6 @@
     els.updateNotes.textContent = latest.notes || 'No release notes were included with this release.';
     els.updateNotes.classList.add('hidden');
     els.updateNotesToggle.textContent = "What's new";
-    els.updateMeter.classList.add('hidden');
-    els.updateFill.style.width = '0%';
-    els.updatePct.textContent = '0%';
     els.updateNow.disabled = false;
     els.updateNotesToggle.disabled = false;
     els.updateNow.textContent = res.prepared ? 'Finish update' : 'Update now';
@@ -1030,27 +1075,189 @@
     els.updateBar.classList.remove('hidden');
   }
 
+  function showCompleted(version) {
+    pendingUpdate = null;
+    resetUpdateChrome();
+    els.updateTitle.textContent = 'Update completed — v' + version;
+    updateSub('openCaption is up to date.');
+    els.updateNow.classList.add('hidden');
+    els.updateNotesToggle.classList.add('hidden');
+    els.updateLater.textContent = 'Close';
+    els.updateBar.classList.remove('hidden');
+  }
+
+  function onUpdateEvent(ev, release) {
+    if (!ev) return;
+    var version = (release && release.version) ? ' — v' + release.version : '';
+    var pct;
+
+    if (ev.phase === 'connecting') {
+      els.updateTitle.textContent = 'Connecting to download server';
+      updateSub('Contacting ' + (ev.host || 'GitHub') + '…');
+      setUpdateMeter(0, true);
+      return;
+    }
+    if (ev.phase === 'downloading') {
+      pct = typeof ev.percent === 'number' ? ev.percent : 0;
+      els.updateTitle.textContent = 'Downloading update' + version;
+      updateSub(ev.total
+        ? pct + '% — ' + fmtUpdateBytes(ev.received) + ' of ' + fmtUpdateBytes(ev.total)
+        : fmtUpdateBytes(ev.received) + ' downloaded');
+      setUpdateMeter(pct, !ev.total);
+      return;
+    }
+    if (ev.phase === 'retrying') {
+      els.updateTitle.textContent = 'Retrying connection';
+      updateSub('Attempt ' + ev.attempt + ' of ' + ev.attempts + ' — ' +
+        (ev.reason || 'the connection did not complete') + '.');
+      setUpdateMeter(updatePercent, true);
+      return;
+    }
+    if (ev.phase === 'verifying') {
+      els.updateTitle.textContent = 'Verifying download';
+      updateSub('Checking the SHA-256 checksum before anything is installed.');
+      setUpdateMeter(100, false);
+      return;
+    }
+    if (ev.phase === 'installing') {
+      els.updateTitle.textContent = 'Installing update' + version;
+      updateSub('Validating the package and staging the new version.');
+      setUpdateMeter(100, true);
+    }
+  }
+
+  function openUpdateRelease() {
+    var url = Updater.openReleasePage(pendingUpdate && pendingUpdate.latest);
+    if (cs.openURLInDefaultBrowser(url)) {
+      log('Opened the release page: ' + url, 'dim');
+    } else {
+      updateSub('Could not open a browser. Download it from ' + url);
+      log('! Could not open a browser. Release page: ' + url, 'warn');
+    }
+  }
+
+  function showUpdateCanceled() {
+    updateBusy = false;
+    updateDismissed = false;
+    els.updateBar.classList.remove('hidden');
+    els.updateBar.classList.remove('failed');
+    els.updateCancel.classList.add('hidden');
+    els.updateCancel.disabled = false;
+    els.updateCancel.textContent = 'Cancel';
+    hideUpdateMeter();
+    setUpdateDetail('');
+    els.updateTitle.textContent = 'Update cancelled';
+    updateSub('The download was cancelled. Your installed version is unchanged.');
+    els.updateNow.disabled = false;
+    els.updateNow.textContent = (pendingUpdate && pendingUpdate.prepared) ? 'Finish update' : 'Update now';
+    els.updateNotesToggle.disabled = false;
+    els.updateRelease.classList.add('hidden');
+    log('Update cancelled. The installed version was left untouched.', 'dim');
+  }
+
+  function showUpdateFailure(err) {
+    updateBusy = false;
+    els.updateCancel.classList.add('hidden');
+    els.updateCancel.disabled = false;
+    els.updateCancel.textContent = 'Cancel';
+    var message = (err && (err.userMessage || err.message)) || 'The update could not be completed.';
+    var technical = (err && (err.technical || err.message)) || '';
+    if (technical === message) technical = '';
+
+    updateDismissed = false;
+    els.updateBar.classList.remove('hidden');
+    els.updateBar.classList.add('failed');
+    els.updateTitle.textContent = (err && err.kind === 'install') ? 'Update failed' : 'Download failed';
+    updateSub(message + ' The installed version was left untouched.');
+    setUpdateDetail(technical ? 'Details: ' + technical : '');
+    hideUpdateMeter();
+    els.updateNow.disabled = false;
+    els.updateNow.textContent = 'Retry';
+    els.updateNotesToggle.disabled = false;
+    els.updateRelease.classList.remove('hidden');
+    log('! Update failed: ' + message, 'err');
+    if (technical) log('Technical: ' + technical, 'dim');
+    log('You can install it manually from ' +
+      Updater.openReleasePage(pendingUpdate && pendingUpdate.latest), 'dim');
+  }
+
+  function startUpdateDownload() {
+    var res = pendingUpdate;
+    updateBusy = true;
+    els.updateBar.classList.remove('failed');
+    els.updateRelease.classList.add('hidden');
+    setUpdateDetail('');
+    els.updateNow.disabled = true;
+    els.updateNow.textContent = 'Updating';
+    els.updateNotesToggle.disabled = true;
+    els.updateNotes.classList.add('hidden');
+    els.updateCancel.classList.remove('hidden');
+    els.updateCancel.disabled = false;
+    els.updateCancel.textContent = 'Cancel';
+    els.updateTitle.textContent = 'Connecting to download server';
+    updateSub('Contacting GitHub for v' + res.latest.version + '…');
+    setUpdateMeter(0, true);
+
+    Updater.prepare(res.latest, function (ev) {
+      onUpdateEvent(ev, res.latest);
+    }).then(function (prep) {
+      updateBusy = false;
+      res.prepared = prep;
+      els.updateCancel.classList.add('hidden');
+      hideUpdateMeter();
+      els.updateNotesToggle.disabled = false;
+      launchPrepared(prep);
+    }).catch(function (err) {
+      if (err && err.code === 'ECANCELED') {
+        showUpdateCanceled();
+        return;
+      }
+      showUpdateFailure(err);
+    });
+  }
+
+  function onUpdateCancel() {
+    if (!updateBusy || updateLaunched) return;
+    var result = Updater.cancel();
+    if (!result || !result.ok) return;
+    els.updateCancel.disabled = true;
+    els.updateCancel.textContent = 'Cancelling';
+    els.updateNow.disabled = true;
+    updateSub('Cancelling the download…');
+    log('Cancelling the update download…', 'dim');
+  }
+
   function launchPrepared(prep) {
     if (updateLaunched) return;
 
+    updateDismissed = false;
+    els.updateBar.classList.remove('hidden');
+    els.updateBar.classList.remove('failed');
+    els.updateRelease.classList.add('hidden');
+    els.updateCancel.classList.add('hidden');
+    setUpdateDetail('');
+    els.updateTitle.textContent = 'Installing update — v' + prep.version;
+    updateSub('Preparing the helper that swaps in the new version…');
+    setUpdateMeter(100, true);
+
     var launched = Updater.installPrepared(prep);
     if (!launched.ok) {
-      var reason = launched.error || 'The update helper could not be started.';
-      els.updateNow.disabled = false;
-      els.updateNow.textContent = 'Retry';
-      els.updateMeter.classList.add('hidden');
-      updateSub(reason);
-      log('! ' + reason, 'err');
+      var failure = new Error(launched.error || 'The update helper could not be started.');
+      failure.kind = 'install';
+      failure.userMessage = failure.message;
+      failure.technical = failure.message;
+      showUpdateFailure(failure);
       return;
     }
 
     updateLaunched = true;
+    hideUpdateMeter();
     els.updateNow.disabled = true;
     els.updateNotesToggle.disabled = false;
     els.updateNow.textContent = 'Waiting';
     els.updateTitle.textContent = 'Update ready — v' + prep.version;
     updateSub('Close Premiere Pro to finish installing. It will reopen automatically. Your API key and settings are kept.');
-    log('Update v' + prep.version + ' is downloaded and verified. Close Premiere Pro to install it.', 'ok');
+    log('Update v' + prep.version + ' is downloaded, verified and staged. Close Premiere Pro to install it.', 'ok');
   }
 
   function onUpdateNow() {
@@ -1058,14 +1265,7 @@
     var res = pendingUpdate;
 
     if (!res.canSelfUpdate || !res.canSelfUpdate.ok) {
-      var url = Updater.openReleasePage(res.latest);
-      var opened = cs.openURLInDefaultBrowser(url);
-      if (opened) {
-        log('Opened the release page: ' + url, 'dim');
-      } else {
-        updateSub('Could not open a browser. Download it from ' + url);
-        log('! Could not open a browser. Release page: ' + url, 'warn');
-      }
+      openUpdateRelease();
       return;
     }
 
@@ -1074,36 +1274,7 @@
       return;
     }
 
-    updateBusy = true;
-    els.updateNow.disabled = true;
-    els.updateNotesToggle.disabled = true;
-    els.updateNow.textContent = 'Updating';
-    els.updateMeter.classList.remove('hidden');
-    els.updateNotes.classList.add('hidden');
-    els.updateFill.style.width = '0%';
-    els.updatePct.textContent = '0%';
-
-    Updater.prepare(res.latest, function (pct, label) {
-      els.updateFill.style.width = pct + '%';
-      els.updatePct.textContent = pct + '%';
-      if (label) updateSub(label + ' — v' + res.latest.version);
-    }).then(function (prep) {
-      updateBusy = false;
-      res.prepared = prep;
-      els.updateMeter.classList.add('hidden');
-      els.updateNotesToggle.disabled = false;
-      launchPrepared(prep);
-    }).catch(function (err) {
-      updateBusy = false;
-      var message = (err && err.message) ? err.message : 'Unknown error.';
-      els.updateNow.disabled = false;
-      els.updateNow.textContent = 'Retry';
-      els.updateNotesToggle.disabled = false;
-      els.updateMeter.classList.add('hidden');
-      updateSub(message);
-      log('! Update failed: ' + message, 'err');
-      log('You can install it manually from ' + Updater.openReleasePage(res.latest), 'dim');
-    });
+    startUpdateDownload();
   }
 
   function manualUpdateCheck() {
@@ -1113,7 +1284,7 @@
       return;
     }
 
-    log('Checking GitHub for a newer release…', 'dim');
+    log('Checking for updates…', 'dim');
     Updater.check(VERSION, true).then(function (res) {
       if (!res || !res.ok) {
         log('! Update check failed: ' + ((res && res.error) || 'unknown error'), 'warn');
@@ -1146,6 +1317,7 @@
     var result = Updater.readResult();
     if (result) {
       if (result.status === 'ok') {
+        showCompleted(result.version);
         log('Updated to openCaption v' + result.version + '.', 'ok');
       } else if (result.status === 'error') {
         log('! The last update did not install: ' + result.message, 'err');
@@ -1248,6 +1420,8 @@
     els.clearLogBtn.addEventListener('click', clearLog);
 
     els.updateNow.addEventListener('click', onUpdateNow);
+    els.updateCancel.addEventListener('click', onUpdateCancel);
+    els.updateRelease.addEventListener('click', openUpdateRelease);
     els.updateLater.addEventListener('click', function () {
       updateDismissed = true;
       els.updateBar.classList.add('hidden');
@@ -1296,8 +1470,8 @@
      'customAccent', 'customAccentHex', 'customText', 'customTextHex',
      'customThemeSave', 'customThemeDelete', 'customThemeCancel',
      'tpBg', 'tpCard', 'tpText', 'tpMuted', 'tpAccent',
-     'updateBar', 'updateTitle', 'updateSub', 'updateNow', 'updateNotesToggle',
-     'updateLater', 'updateMeter', 'updateFill', 'updatePct', 'updateNotes', 'checkUpdates']
+     'updateBar', 'updateTitle', 'updateSub', 'updateNow', 'updateCancel', 'updateRelease', 'updateNotesToggle',
+     'updateLater', 'updateMeter', 'updateFill', 'updatePct', 'updateDetail', 'updateNotes', 'checkUpdates']
       .forEach(function (id) { els[id] = $(id); });
 
     els.version.textContent = 'openCaption v' + VERSION;

@@ -252,11 +252,22 @@ The panel checks GitHub for a newer release when it opens and shows an
   caches the answer in `%APPDATA%\CaptionAI\update.json`. Offline launches stay
   quiet; the footer also has a **check for updates** link.
 - **Update now** downloads the Windows package from the openCaption GitHub
-  release, verifies its SHA-256 checksum, extracts it under
-  `%APPDATA%\CaptionAI\updates\`, and starts a small helper.
-- The helper waits for Premiere Pro to close, replaces
+  release into `%APPDATA%\CaptionAI\updates\`, verifies its SHA-256 checksum,
+  extracts it into a staging folder, and starts a small helper.
+- Downloads follow GitHub's redirect to its asset CDN, use a connect deadline
+  plus a longer overall limit, and retry network errors, timeouts, HTTP 429 and
+  transient 5xx responses with jittered exponential backoff. Bytes stream to a
+  `.part` file and are only kept when the size and checksum match. If the
+  release URL stays unreachable, the updater tries GitHub's asset API; after
+  that it offers **Retry** and **Open GitHub Release**.
+- A **Cancel** button aborts a download or a retry wait immediately, removes the
+  `.part` file and leaves the installed version untouched. The banner shows
+  **Update cancelled** and offers **Update now** again for a later attempt.
+- The helper waits for Premiere Pro to close, renames the current extension to
+  a backup, moves the staged copy into
   `%APPDATA%\Adobe\CEP\extensions\com.captionai.panel`, and relaunches Premiere.
-  Files are never replaced while Premiere is running.
+  If the swap fails, the backup is restored. Files are never replaced while
+  Premiere is running, and a failed download never touches the installed copy.
 - The API key and all settings live in `%APPDATA%\CaptionAI` and are untouched.
 - If the panel is installed under `Program Files`, is a developer junction, or
   the release has no checksum, **Update now** opens the release page instead of
@@ -265,6 +276,10 @@ The panel checks GitHub for a newer release when it opens and shows an
 > **First updater release:** v1.5.0 is the first version that can check for
 > updates. Users on 1.4.x must install v1.5.0 once by hand; from then on, newer
 > releases appear inside the panel.
+>
+> **Updating from 1.8.0:** the 1.8.0 downloader had no retry when GitHub's asset
+> CDN connection timed out. Install 1.8.1 once from the release page; its
+> downloader is the retrying one described above.
 
 ## Develop from this folder
 
@@ -278,6 +293,13 @@ powershell -ExecutionPolicy Bypass -File .\setup-ffmpeg.ps1
 1. Junctions `extension\` into `%APPDATA%\Adobe\CEP\extensions\com.captionai.panel`
    (per-user, no admin rights, and edits you make in this folder are live).
 2. Sets `PlayerDebugMode=1` for CSXS 9–16 so Premiere loads the unsigned panel.
+
+The updater download, retry, checksum and cancel behaviour can be exercised
+without Premiere (a local HTTP server simulates GitHub):
+
+```powershell
+node .\tests\updater.test.js
+```
 
 Then restart Premiere Pro and open **Window → Extensions → openCaption**.
 

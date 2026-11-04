@@ -51,6 +51,8 @@
     </div>
     <div class="update-actions">
       <button class="btn sm primary" id="updateNow" type="button">Update now</button>
+      <button class="btn sm ghost hidden" id="updateCancel" type="button">Cancel</button>
+      <button class="btn sm ghost hidden" id="updateRelease" type="button">Open GitHub Release</button>
       <button class="btn sm ghost" id="updateNotesToggle" type="button">What&#39;s new</button>
       <button class="linkbtn update-later" id="updateLater" type="button">Later</button>
     </div>
@@ -58,6 +60,7 @@
       <div class="update-track"><div class="update-fill" id="updateFill"></div></div>
       <span class="update-pct" id="updatePct">0%</span>
     </div>
+    <p class="update-detail hidden" id="updateDetail"></p>
     <pre class="update-notes hidden" id="updateNotes"></pre>
   </section>
 

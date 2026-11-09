@@ -258,8 +258,13 @@
           <span class="track"><span class="knob"></span></span>
           <span class="switch-label">Build caption track</span>
         </label>
+        <label class="switch">
+          <input type="checkbox" id="reuseTrack" checked />
+          <span class="track"><span class="knob"></span></span>
+          <span class="switch-label">Reuse caption track</span>
+        </label>
       </div>
-      <p class="hint tight">Word-level sync pins every caption to the moment the words are actually audible in the audio, measured from the waveform (recommended).</p>
+      <p class="hint tight">Word-level sync pins every caption to the moment the words are actually audible in the audio, measured from the waveform (recommended). Reuse caption track keeps one openCaption caption track per sequence instead of adding a new one on every run.</p>
     </section>
 
     <!-- ================= run ================= -->

@@ -206,6 +206,23 @@ var CaptionAI = (function () {
     }
   }
 
+  /* The SRT keeps a descriptive name on disk (<sequence>_<stamp>.srt) even
+     after the project item is renumbered, so the caption bin can tell whether
+     a sequence was captioned before the panel started recording tracks. */
+  function hasSrtForSequence(bin, prefix) {
+    if (!bin || !prefix) return false;
+    var needle = String(prefix).toLowerCase();
+    var list = captionItems(bin);
+    for (var i = 0; i < list.length; i++) {
+      var p = '';
+      try { p = String(list[i].getMediaPath() || ''); } catch (e) { p = ''; }
+      if (!p) continue;
+      var base = p.replace(/\\/g, '/').split('/').pop().toLowerCase();
+      if (base.indexOf(needle) === 0) return true;
+    }
+    return false;
+  }
+
   function findItemByPath(bin, wanted) {
     var children;
     try { children = bin.children; } catch (e) { return null; }
@@ -480,6 +497,42 @@ var CaptionAI = (function () {
       }
     },
 
+    /* Caption tracks cannot be listed, updated or removed through
+       ExtendScript, so the panel tracks which sequences already got one and
+       skips createCaptionTrack on later runs. The key is project path +
+       sequenceID: both are readable here without touching the timeline.
+       When an on-disk SRT prefix is supplied, existing caption SRTs in the bin
+       are checked too, which covers sequences captioned before the panel kept
+       any record. */
+    getCaptionKey: function (opts) {
+      try {
+        opts = opts || {};
+        if (!app.project) return fail('No project is open.');
+        var seq = app.project.activeSequence;
+        if (!seq) return fail('No active sequence.');
+        var projectPath = '';
+        try { projectPath = String(app.project.path || ''); } catch (e1) { projectPath = ''; }
+        var sequenceId = '';
+        try { sequenceId = String(seq.sequenceID || ''); } catch (e2) { sequenceId = ''; }
+
+        var existingSrt = false;
+        if (opts.srtPrefix) {
+          var bin = findDirectChildBin(app.project.rootItem, CAPTION_BIN_NAME);
+          existingSrt = hasSrtForSequence(bin, opts.srtPrefix);
+        }
+
+        return j({
+          ok: true,
+          projectPath: projectPath,
+          sequenceId: sequenceId,
+          sequence: String(seq.name || ''),
+          existingSrt: existingSrt
+        });
+      } catch (e) {
+        return fail(e);
+      }
+    },
+
     /* ------------------------------------------------- import + caption track */
     importCaptions: function (opts) {
       try {
@@ -492,7 +545,8 @@ var CaptionAI = (function () {
         var file = new File(opts.path);
         if (!file.exists) return fail('SRT file not found: ' + opts.path);
 
-        if (!seq.createCaptionTrack) {
+        var createTrack = (opts.createTrack === undefined) ? true : !!opts.createTrack;
+        if (createTrack && !seq.createCaptionTrack) {
           return fail('This Premiere version does not expose createCaptionTrack. Import the SRT manually.');
         }
 
@@ -536,20 +590,30 @@ var CaptionAI = (function () {
         var renamed = itemName !== beforeName;
 
         var created = false;
-        try {
-          created = seq.createCaptionTrack(item, 0);
-        } catch (e2) {
-          return fail('createCaptionTrack failed: ' + e2);
+        if (createTrack) {
+          try {
+            created = seq.createCaptionTrack(item, 0);
+          } catch (e2) {
+            return fail('createCaptionTrack failed: ' + e2);
+          }
         }
+
+        var projectPath = '';
+        try { projectPath = String(app.project.path || ''); } catch (e4) { projectPath = ''; }
+        var sequenceId = '';
+        try { sequenceId = String(seq.sequenceID || ''); } catch (e5) { sequenceId = ''; }
 
         return j({
           ok: true,
           created: !!created,
+          skipped: !createTrack,
           item: itemName,
           numbered: isCaptionNumber(itemName),
           renamed: renamed,
           bin: bin ? CAPTION_BIN_NAME : '',
-          sequence: String(seq.name || '')
+          sequence: String(seq.name || ''),
+          projectPath: projectPath,
+          sequenceId: sequenceId
         });
       } catch (e) {
         return fail(e);

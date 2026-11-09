@@ -20,6 +20,7 @@ var Config = (function () {
   var DATA_DIR = path.join(NODE.appData, 'CaptionAI');
   var CONFIG_FILE = path.join(DATA_DIR, 'config.json');
   var CAPTION_DIR = path.join(DATA_DIR, 'captions');
+  var TRACK_STATE_FILE = path.join(DATA_DIR, 'caption-tracks.json');
   var TEMP_DIR = path.join(NODE.os.tmpdir(), 'CaptionAI');
 
   var XOR_KEY = 'caption-ai-local-v1';
@@ -40,6 +41,7 @@ var Config = (function () {
     maxLines: 1,
     snapPauses: true,
     autoImport: true,
+    reuseTrack: true,
     ffmpegPath: '',
     chunkSec: 30,
     concurrency: 3,
@@ -161,6 +163,44 @@ var Config = (function () {
     }
   }
 
+  /* --- caption track bookkeeping -------------------------------------------
+     Premiere exposes no way to list, update or delete caption tracks from
+     ExtendScript, so the panel remembers which sequences it already gave a
+     track and skips createCaptionTrack on later runs. Keyed by project path +
+     sequenceID, both of which survive panel restarts. */
+  function trackKey(projectPath, sequenceId) {
+    var p = String(projectPath || '').toLowerCase();
+    var s = String(sequenceId || '');
+    if (!s) return '';
+    return p + '|' + s;
+  }
+
+  function readTrackState() {
+    try {
+      if (fs.existsSync(TRACK_STATE_FILE)) {
+        return JSON.parse(fs.readFileSync(TRACK_STATE_FILE, 'utf8')) || {};
+      }
+    } catch (e) { /* a corrupt file just means "not built yet" */ }
+    return {};
+  }
+
+  function hasCaptionTrack(projectPath, sequenceId) {
+    var key = trackKey(projectPath, sequenceId);
+    if (!key) return false;
+    return !!readTrackState()[key];
+  }
+
+  function markCaptionTrack(projectPath, sequenceId) {
+    var key = trackKey(projectPath, sequenceId);
+    if (!key) return;
+    var state = readTrackState();
+    state[key] = Date.now();
+    ensureDirs();
+    try {
+      fs.writeFileSync(TRACK_STATE_FILE, JSON.stringify(state, null, 2), 'utf8');
+    } catch (e) { /* non-fatal: a later run may add another track */ }
+  }
+
   function sanitizeName(name) {
     return String(name || 'sequence')
       .replace(/[\\/:*?"<>|]+/g, '_')
@@ -188,6 +228,8 @@ var Config = (function () {
     save: save,
     sanitizeName: sanitizeName,
     timestamp: timestamp,
+    hasCaptionTrack: hasCaptionTrack,
+    markCaptionTrack: markCaptionTrack,
     /* Shared obfuscation for independent settings files (AI Chat). */
     encodeSecret: encodeKey,
     decodeSecret: decodeKey

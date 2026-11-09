@@ -278,8 +278,8 @@ The panel checks GitHub for a newer release when it opens and shows an
 > releases appear inside the panel.
 >
 > **Updating from 1.8.0:** the 1.8.0 downloader had no retry when GitHub's asset
-> CDN connection timed out. Install 1.8.1 once from the release page; its
-> downloader is the retrying one described above.
+> CDN connection timed out. Install 1.8.1 or newer once from the release page;
+> its downloader is the retrying one described above.
 
 ## Develop from this folder
 
@@ -344,14 +344,21 @@ captions are kept with a warning instead of being lost.
 
 The panel writes `…\CaptionAI\captions\<sequence>_<timestamp>.srt` and, by default,
 imports it and calls `createCaptionTrack()` so a captions track appears on the
-sequence. Imported SRTs are filed in a bin called **99 openCaption** at the project
-root (created on first use), so they never mix into your own bins. Each caption
-there is numbered `01`, `02`, `03`… in the order you generate it, and the counter
-is per project. On the first run, older SRTs already in the bin are numbered in
-bin order; after that, numbered items keep their numbers and the next run
-continues after the highest one. Other items and bins are left alone. If
-Premiere refuses, the SRT is still on disk — drag it into the Project panel and
-onto the sequence.
+sequence. Only the first run per sequence creates a track: the panel records that
+sequence in `%APPDATA%\CaptionAI\caption-tracks.json` and, on later runs, still
+imports the SRT but leaves the existing track alone (see **Reuse caption track**).
+ExtendScript cannot list, replace or delete caption tracks, so Premiere adds a
+brand-new track on every `createCaptionTrack()` call — this is what produced the
+stack of duplicate `Caption 1`, `Caption 2`… tracks.
+
+Imported SRTs are filed in a bin called **99 openCaption** at the project root
+(created on first use), so they never mix into your own bins. Each caption there
+is numbered `01`, `02`, `03`… in the order you generate it, and the counter is per
+project. On the first run, older SRTs already in the bin are numbered in bin
+order; after that, numbered items keep their numbers and the next run continues
+after the highest one. Other items and bins are left alone. If Premiere refuses,
+the SRT is still on disk — drag it into the Project panel and onto the sequence,
+or onto the track you want to replace.
 
 ## Settings that matter
 
@@ -370,6 +377,17 @@ onto the sequence.
   spoken, and a pause longer than 0.28 s closes the caption so the break in
   dialogue is a break in the subtitles. Leave this on; with it off the panel falls
   back to plain proportional splitting.
+- **Build caption track** — on by default. The imported SRT is also placed on the
+  sequence as an editable caption track. Turn it off to only produce the SRT file.
+- **Reuse caption track** — on by default. The panel remembers each sequence it
+  already captioned (keyed by project path + sequence ID in
+  `%APPDATA%\CaptionAI\caption-tracks.json`), so repeat runs rewrite the SRT and
+  re-file it in the **99 openCaption** bin without stacking another track on the
+  timeline. The log says which track was kept. Turn it off when you genuinely want
+  a second, separate track — e.g. to keep an old translation next to a new one.
+  Sequences captioned before this change are recognised from the SRTs already in
+  the bin (their on-disk names still start with the sequence name), so they are
+  not given an extra track either.
 - **Chunk length** — shorter = better timestamp accuracy, more requests. 30s is the
   sweet spot; 10s is noticeably tighter but ~3× the calls.
 - **Parallel** — how many chunks are in flight at once (default 3). This is the main

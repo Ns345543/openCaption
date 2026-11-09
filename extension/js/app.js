@@ -17,7 +17,7 @@
   var activeRun = null;
   var cs = new CSInterface();
 
-  var VERSION = '1.8.1';
+  var VERSION = '1.8.2';
 
   function $(id) { return document.getElementById(id); }
 
@@ -194,6 +194,7 @@
     settings.maxLines = wordCount(els.maxLines.value, 1, 3, 1);
     settings.snapPauses = els.snapPauses.checked;
     settings.autoImport = els.autoImport.checked;
+    settings.reuseTrack = els.reuseTrack.checked;
     settings.ffmpegPath = els.ffmpegPath.value.trim();
     settings.chunkSec = clamp(els.chunkSec.value, 10, 120);
     settings.concurrency = clamp(els.concurrency.value, 1, 6);
@@ -226,6 +227,7 @@
     updateCaptionShape();
     els.snapPauses.checked = !!settings.snapPauses;
     els.autoImport.checked = !!settings.autoImport;
+    els.reuseTrack.checked = settings.reuseTrack !== false;
     els.ffmpegPath.value = settings.ffmpegPath || '';
     els.chunkSec.value = settings.chunkSec;
     els.concurrency.value = settings.concurrency;
@@ -767,11 +769,32 @@
 
       if (settings.autoImport && !token.cancelled) {
         progress(99, 'importing caption track…');
-        var imp = await Premiere.importCaptions(srtPath);
+
+        /* ExtendScript cannot see caption tracks, so the panel remembers the
+           sequences it already gave one and skips creating another. SRTs
+           already filed for this sequence cover projects captioned before
+           that memory existed. */
+        var createTrack = true;
+        if (settings.reuseTrack) {
+          var key = await Premiere.getCaptionKey(Config.sanitizeName(seq.name) + '_');
+          if (key && key.ok &&
+              (key.existingSrt || Config.hasCaptionTrack(key.projectPath, key.sequenceId))) {
+            createTrack = false;
+          }
+        }
+
+        var imp = await Premiere.importCaptions(srtPath, createTrack);
         if (!imp.ok) {
           log('! Could not create the caption track: ' + imp.error, 'warn');
           log('  The SRT is still on disk — drag it into the project panel, or use File > Import.', 'dim');
+        } else if (imp.skipped) {
+          if (imp.sequenceId) Config.markCaptionTrack(imp.projectPath, imp.sequenceId);
+          log('Caption "' + imp.item + '" filed in "' + (imp.bin || '99 openCaption') +
+              '"; kept the existing caption track on "' + imp.sequence + '".', 'ok');
+          log('  Premiere cannot replace captions on an existing track from a panel. ' +
+              'Drag the SRT onto that track, or turn off "Reuse caption track" to add a second track.', 'dim');
         } else if (imp.created) {
+          if (imp.sequenceId) Config.markCaptionTrack(imp.projectPath, imp.sequenceId);
           if (imp.numbered) {
             log('Caption "' + imp.item + '" created on "' + imp.sequence + '"; filed in "' +
                 (imp.bin || '99 openCaption') + '".', 'ok');
@@ -1384,7 +1407,7 @@
       persist();
     });
 
-    ['language', 'wordsPerLine', 'maxLines', 'snapPauses', 'autoImport', 'chunkSec', 'silenceDb', 'concurrency']
+    ['language', 'wordsPerLine', 'maxLines', 'snapPauses', 'autoImport', 'reuseTrack', 'chunkSec', 'silenceDb', 'concurrency']
       .forEach(function (id) { els[id].addEventListener('change', persist); });
 
     els.wordsPerLine.addEventListener('change', updateCaptionShape);
@@ -1461,7 +1484,7 @@
   function boot() {
     ['apiCard', 'apiHead', 'apiKey', 'toggleKey', 'saveKey', 'testKey', 'clearKey', 'keyBadge', 'model', 'customModel',
      'customModelWrap', 'language', 'scope', 'wordsPerLine', 'maxLines', 'captionShape',
-     'snapPauses', 'autoImport',
+     'snapPauses', 'autoImport', 'reuseTrack',
      'generate', 'cancel', 'bar', 'progressTrack', 'progressLabel', 'log', 'copyLogBtn', 'clearLogBtn', 'ffmpegPath', 'browseFfmpeg', 'chunkSec',
      'concurrency', 'silenceDb', 'openDataFolder', 'openCaptionFolder', 'version', 'hostInfo',
      'refreshModels', 'testModel', 'themes', 'themeName',

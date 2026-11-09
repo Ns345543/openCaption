@@ -138,7 +138,12 @@ var Premiere = (function () {
     ensureHost: ensureHost,
     ping: function () { return call('ping'); },
     getSequenceInfo: function (scope) { return call('getSequenceInfo', { scope: scope }); },
-    importCaptions: function (srtPath) { return call('importCaptions', { path: srtPath }); },
+    getCaptionKey: function (srtPrefix) {
+      return call('getCaptionKey', { srtPrefix: srtPrefix || '' });
+    },
+    importCaptions: function (srtPath, createTrack) {
+      return call('importCaptions', { path: srtPath, createTrack: createTrack !== false });
+    },
     revealInExplorer: function (p) { return call('revealInExplorer', { path: p }); }
   };
 })();

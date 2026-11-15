@@ -17,7 +17,9 @@
   var activeRun = null;
   var cs = new CSInterface();
 
-  var VERSION = '1.8.2';
+  var VERSION = '1.12.12';
+
+  var TABS = ['transcribe', 'animate', 'editor', 'settings'];
 
   function $(id) { return document.getElementById(id); }
 
@@ -184,35 +186,36 @@
   }
 
   function readForm() {
-    var modelSelect = els.model.value;
-    settings.model = (modelSelect === '__custom')
-      ? (els.customModel.value.trim() || Config.DEFAULTS.model)
-      : modelSelect;
+    settings.model = els.model.value;
     settings.language = els.language.value;
     settings.scope = document.querySelector('#scope button.active').dataset.scope;
     settings.wordsPerLine = wordCount(els.wordsPerLine.value, 1, 4, 2);
     settings.maxLines = wordCount(els.maxLines.value, 1, 3, 1);
     settings.snapPauses = els.snapPauses.checked;
     settings.autoImport = els.autoImport.checked;
-    settings.reuseTrack = els.reuseTrack.checked;
     settings.ffmpegPath = els.ffmpegPath.value.trim();
     settings.chunkSec = clamp(els.chunkSec.value, 10, 120);
     settings.concurrency = clamp(els.concurrency.value, 1, 6);
     settings.silenceDb = clamp(els.silenceDb.value, -60, -10);
   }
 
-  function persist() {
+  function persist(opts) {
     readForm();
-    var res = Config.save(settings);
+    var res = Config.save(settings, opts);
     if (!res.ok) log('! Could not save settings: ' + res.error, 'warn');
+    return res;
   }
 
   function applyToForm() {
     els.model.value = settings.model;
+    /* A model remembered from an earlier refresh may not be one of the static
+       options; show it instead of leaving the dropdown blank. */
     if (els.model.value !== settings.model) {
-      els.model.value = '__custom';
-      els.customModel.value = settings.model;
-      els.customModelWrap.classList.remove('hidden');
+      var saved = document.createElement('option');
+      saved.value = settings.model;
+      saved.textContent = settings.model;
+      els.model.appendChild(saved);
+      els.model.value = settings.model;
     }
     els.language.value = settings.language;
     if (!els.language.value) els.language.value = 'auto';
@@ -227,7 +230,6 @@
     updateCaptionShape();
     els.snapPauses.checked = !!settings.snapPauses;
     els.autoImport.checked = !!settings.autoImport;
-    els.reuseTrack.checked = settings.reuseTrack !== false;
     els.ffmpegPath.value = settings.ffmpegPath || '';
     els.chunkSec.value = settings.chunkSec;
     els.concurrency.value = settings.concurrency;
@@ -261,10 +263,6 @@
       opt.textContent = id;
       els.model.appendChild(opt);
     });
-    var custom = document.createElement('option');
-    custom.value = '__custom';
-    custom.textContent = 'Custom…';
-    els.model.appendChild(custom);
 
     if (usable.indexOf(previous) >= 0) {
       els.model.value = previous;
@@ -282,12 +280,10 @@
   }
 
   async function testSelectedModel() {
-    var key = els.apiKey.value.trim() || (settings && settings.apiKey) || '';
+    var key = Gemini.normalizeKey(els.apiKey.value) || (settings && settings.apiKey) || '';
     if (!key) { log('! Enter your API key first.', 'warn'); return; }
 
-    var model = (els.model.value === '__custom')
-      ? els.customModel.value.trim()
-      : els.model.value;
+    var model = els.model.value;
     if (!model) { log('! Pick a model first.', 'warn'); return; }
 
     els.testModel.disabled = true;
@@ -326,7 +322,7 @@
   }
 
   async function refreshModelList(silent) {
-    var key = els.apiKey.value.trim() || (settings && settings.apiKey) || '';
+    var key = Gemini.normalizeKey(els.apiKey.value) || (settings && settings.apiKey) || '';
     if (!key) {
       if (!silent) log('! Enter your API key first.', 'warn');
       return;
@@ -351,17 +347,31 @@
   /* --------------------------------------------------------------- key */
 
   async function saveKey() {
-    var key = els.apiKey.value.trim();
+    var pasted = els.apiKey.value;
+    var key = Gemini.normalizeKey(pasted);
+    if (key !== pasted) {
+      els.apiKey.value = key;
+      log('Removed spaces or invisible characters from the pasted key.', 'dim');
+    }
+
     settings.apiKey = key;
-    persist();
+    var res = persist({ clearKey: !key });
+    if (!res.ok) {
+      els.keyBadge.textContent = 'not saved';
+      els.keyBadge.className = 'badge err';
+      log('! The key could not be saved, so it will not survive a panel restart.', 'err');
+      return;
+    }
+
     setKeyBadge(!!key);
     if (!key) { log('API key cleared.', 'dim'); return; }
-    log('API key saved locally.', 'ok');
+    log('API key saved locally (' + key.length + ' characters).', 'ok');
     await testKey();
   }
 
   async function testKey() {
-    var key = els.apiKey.value.trim();
+    var key = Gemini.normalizeKey(els.apiKey.value);
+    if (els.apiKey.value !== key) els.apiKey.value = key;
     if (!key) { log('! Enter a key first.', 'warn'); return; }
     els.testKey.disabled = true;
     els.keyBadge.textContent = 'checking…';
@@ -371,12 +381,20 @@
       if (res.ok) {
         els.keyBadge.textContent = 'valid';
         els.keyBadge.className = 'badge ok';
-        log('Key is valid. ' + Gemini.audioModels(res.models).length + ' usable models found.', 'ok');
+        log('Key is valid — Google listed ' + res.models.length + ' models; ' +
+            Gemini.audioModels(res.models).length + ' can transcribe audio.', 'ok');
+        if (key !== (settings && settings.apiKey)) {
+          log('This key is only in the field — press Save key to keep it.', 'warn');
+        }
         populateModels(res.models, true);
-      } else {
+      } else if (res.kind === 'invalid-key') {
         els.keyBadge.textContent = 'invalid';
         els.keyBadge.className = 'badge err';
         log('! ' + res.error, 'err');
+      } else {
+        els.keyBadge.textContent = 'not verified';
+        els.keyBadge.className = 'badge err';
+        log('! The key could not be checked: ' + res.error, 'err');
       }
     } catch (e) {
       els.keyBadge.textContent = 'error';
@@ -452,7 +470,7 @@
       readForm();
       Config.save(settings);
 
-      if (!settings.apiKey) throw new Error('Add your Gemini API key first (step 1).');
+      if (!settings.apiKey) throw new Error('Add your Gemini API key first (Settings → 01 · API access).');
 
       var ffmpeg = Audio.resolve(settings.ffmpegPath);
       if (!ffmpeg) {
@@ -770,31 +788,11 @@
       if (settings.autoImport && !token.cancelled) {
         progress(99, 'importing caption track…');
 
-        /* ExtendScript cannot see caption tracks, so the panel remembers the
-           sequences it already gave one and skips creating another. SRTs
-           already filed for this sequence cover projects captioned before
-           that memory existed. */
-        var createTrack = true;
-        if (settings.reuseTrack) {
-          var key = await Premiere.getCaptionKey(Config.sanitizeName(seq.name) + '_');
-          if (key && key.ok &&
-              (key.existingSrt || Config.hasCaptionTrack(key.projectPath, key.sequenceId))) {
-            createTrack = false;
-          }
-        }
-
-        var imp = await Premiere.importCaptions(srtPath, createTrack);
+        var imp = await Premiere.importCaptions(srtPath);
         if (!imp.ok) {
           log('! Could not create the caption track: ' + imp.error, 'warn');
           log('  The SRT is still on disk — drag it into the project panel, or use File > Import.', 'dim');
-        } else if (imp.skipped) {
-          if (imp.sequenceId) Config.markCaptionTrack(imp.projectPath, imp.sequenceId);
-          log('Caption "' + imp.item + '" filed in "' + (imp.bin || '99 openCaption') +
-              '"; kept the existing caption track on "' + imp.sequence + '".', 'ok');
-          log('  Premiere cannot replace captions on an existing track from a panel. ' +
-              'Drag the SRT onto that track, or turn off "Reuse caption track" to add a second track.', 'dim');
         } else if (imp.created) {
-          if (imp.sequenceId) Config.markCaptionTrack(imp.projectPath, imp.sequenceId);
           if (imp.numbered) {
             log('Caption "' + imp.item + '" created on "' + imp.sequence + '"; filed in "' +
                 (imp.bin || '99 openCaption') + '".', 'ok');
@@ -815,6 +813,13 @@
           ' · ' + seconds + 's', 'ok');
 
       els.lastSrtPath = srtPath;
+
+      /* Hand this run to the Editor tab. The cues are also mirrored to disk by
+         the editor, so fixing text later does not need another transcription. */
+      if (typeof Editor !== 'undefined') {
+        Editor.setRun(srtPath, seq.name, finalCues);
+        log('Cues are ready to edit on the Editor tab.', 'dim');
+      }
     } catch (e) {
       if (e && e.cancelled) {
         progress(0, 'stopped');
@@ -845,7 +850,59 @@
     }
   }
 
-  /* ---------------------------------------------------------------- shell */
+  /* ----------------------------------------------------------------- shell */
+
+  function tabNode(prefix, name) {
+    return $(prefix + name.charAt(0).toUpperCase() + name.slice(1));
+  }
+
+  function setTab(id, save) {
+    if (TABS.indexOf(id) < 0) id = 'transcribe';
+
+    TABS.forEach(function (name) {
+      var on = name === id;
+      var btn = tabNode('tabBtn', name);
+      var panel = tabNode('panel', name);
+      if (btn) {
+        btn.classList.toggle('active', on);
+        btn.setAttribute('aria-selected', on ? 'true' : 'false');
+        btn.tabIndex = on ? 0 : -1;
+      }
+      if (panel) panel.classList.toggle('hidden', !on);
+    });
+
+    if (els.mainScroll) els.mainScroll.scrollTop = 0;
+
+    /* Cues rendered while this tab was hidden have no usable height; fit the
+       text boxes now that they are on screen. */
+    if (id === 'editor' && typeof Editor !== 'undefined' && Editor.refresh) Editor.refresh();
+
+    if (!settings) return;
+
+    settings.activeTab = id;
+    if (save) persist();
+  }
+
+  function bindTabs() {
+    var buttons = document.querySelectorAll('.tabs .tab');
+
+    buttons.forEach(function (btn, index) {
+      btn.addEventListener('click', function () { setTab(btn.dataset.tab, true); });
+
+      btn.addEventListener('keydown', function (e) {
+        var next;
+        if (e.key === 'Home') next = 0;
+        else if (e.key === 'End') next = buttons.length - 1;
+        else if (e.key === 'ArrowRight') next = (index + 1) % buttons.length;
+        else if (e.key === 'ArrowLeft') next = (index - 1 + buttons.length) % buttons.length;
+        else return;
+
+        e.preventDefault();
+        setTab(buttons[next].dataset.tab, true);
+        buttons[next].focus();
+      });
+    });
+  }
 
   function openFolder(dir) {
     try {
@@ -1383,6 +1440,8 @@
       }
     });
 
+    bindTabs();
+
     els.customThemeBtn.addEventListener('click', function () {
       if (themeEditorOpen) closeThemeEditor();
       else openThemeEditor();
@@ -1401,13 +1460,9 @@
       });
     });
 
-    els.model.addEventListener('change', function () {
-      var custom = els.model.value === '__custom';
-      els.customModelWrap.classList.toggle('hidden', !custom);
-      persist();
-    });
+    els.model.addEventListener('change', persist);
 
-    ['language', 'wordsPerLine', 'maxLines', 'snapPauses', 'autoImport', 'reuseTrack', 'chunkSec', 'silenceDb', 'concurrency']
+    ['language', 'wordsPerLine', 'maxLines', 'snapPauses', 'autoImport', 'chunkSec', 'silenceDb', 'concurrency']
       .forEach(function (id) { els[id].addEventListener('change', persist); });
 
     els.wordsPerLine.addEventListener('change', updateCaptionShape);
@@ -1420,7 +1475,11 @@
     els.clearKey.addEventListener('click', function () {
       els.apiKey.value = '';
       settings.apiKey = '';
-      persist();
+      var res = persist({ clearKey: true });
+      if (!res.ok) {
+        log('! The saved key could not be removed: ' + res.error, 'err');
+        return;
+      }
       setKeyBadge(false);
       log('API key removed.', 'dim');
     });
@@ -1457,7 +1516,6 @@
 
     document.addEventListener('keydown', function (e) {
       if (e.key !== 'Escape') return;
-      if (typeof Chat !== 'undefined' && Chat.isOpen()) return;
       if (running) {
         e.preventDefault();
         requestCancel();
@@ -1482,9 +1540,9 @@
   }
 
   function boot() {
-    ['apiCard', 'apiHead', 'apiKey', 'toggleKey', 'saveKey', 'testKey', 'clearKey', 'keyBadge', 'model', 'customModel',
-     'customModelWrap', 'language', 'scope', 'wordsPerLine', 'maxLines', 'captionShape',
-     'snapPauses', 'autoImport', 'reuseTrack',
+    ['apiCard', 'apiHead', 'apiKey', 'toggleKey', 'saveKey', 'testKey', 'clearKey', 'keyBadge', 'model',
+     'language', 'scope', 'wordsPerLine', 'maxLines', 'captionShape',
+     'snapPauses', 'autoImport', 'mainScroll',
      'generate', 'cancel', 'bar', 'progressTrack', 'progressLabel', 'log', 'copyLogBtn', 'clearLogBtn', 'ffmpegPath', 'browseFfmpeg', 'chunkSec',
      'concurrency', 'silenceDb', 'openDataFolder', 'openCaptionFolder', 'version', 'hostInfo',
      'refreshModels', 'testModel', 'themes', 'themeName',
@@ -1511,21 +1569,23 @@
     Theme.setCustom(settings.customTheme || null);
     settings.theme = Theme.apply(settings.theme);
     applyToForm();
+    setTab(settings.activeTab, false);
     Theme.mount(els.themes, function (id) {
       settings.theme = id;
       persist();
     });
     bind();
+    if (typeof Editor !== 'undefined') Editor.init();
 
     log('Ready. Open a sequence, then press Generate.', 'dim');
 
     /* On a fresh install the two things that can stop a run are the key and
        the audio helper; say so now instead of failing on the first click. */
     if (!settings.apiKey) {
-      log('No API key yet — paste one in "01 · API access" and press Save key.', 'warn');
+      log('No API key yet — open the Settings tab, paste one in "01 · API access" and press Save key.', 'warn');
     }
     if (!Audio.resolve(settings.ffmpegPath)) {
-      log('! ffmpeg was not found. Reinstall, or pick an ffmpeg.exe under Advanced.', 'warn');
+      log('! ffmpeg was not found. Reinstall, or pick an ffmpeg.exe under Settings > Advanced.', 'warn');
     }
 
     initUpdater();

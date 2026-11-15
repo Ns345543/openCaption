@@ -17,6 +17,54 @@ var Gemini = (function () {
   var HOST = 'generativelanguage.googleapis.com';
   var API_VERSION = 'v1beta';
   var SOCKET_TIMEOUT = 60000;
+  var CONNECT_TIMEOUT = 12000;
+
+  /* Google publishes AAAA records. On networks whose IPv6 route is dead, Node
+     dials the v6 address first and sits there until the socket timeout even
+     though IPv4 works, which reads as "no internet". Dial IPv4, and only flip
+     to IPv6 when IPv4 itself turns out to be unreachable. */
+  var FAMILY_ERROR = {
+    ENETUNREACH: true,
+    EHOSTUNREACH: true,
+    EADDRNOTAVAIL: true,
+    ENOTFOUND: true,
+    EAI_AGAIN: true
+  };
+  var ipFamily = 4;
+
+  function noteNetworkError(e) {
+    var code = e && e.code;
+    if (!code || !FAMILY_ERROR[code]) return;
+    ipFamily = ipFamily === 4 ? 6 : 4;
+  }
+
+  function connectionOptions(urlPath, method, headers) {
+    return {
+      hostname: HOST,
+      port: 443,
+      path: urlPath,
+      method: method,
+      headers: headers,
+      family: ipFamily,
+      timeout: SOCKET_TIMEOUT
+    };
+  }
+
+  /* A dead route should cost seconds, not the full socket timeout. */
+  function abortSlowConnect(req) {
+    var timer = null;
+    req.on('socket', function (socket) {
+      if (!socket.connecting) return;
+      timer = setTimeout(function () {
+        var err = new Error('Could not connect within ' + (CONNECT_TIMEOUT / 1000) + 's.');
+        err.code = 'ETIMEDOUT';
+        req.destroy(err);
+      }, CONNECT_TIMEOUT);
+      socket.once('connect', function () { clearTimeout(timer); });
+      socket.once('close', function () { clearTimeout(timer); });
+    });
+    req.on('close', function () { clearTimeout(timer); });
+  }
 
   var RETRY_STATUS = { 429: true, 500: true, 502: true, 503: true, 504: true };
 
@@ -45,7 +93,7 @@ var Gemini = (function () {
   }
 
   function headersFor(apiKey, payload, accept) {
-    var headers = { 'x-goog-api-key': apiKey, 'Accept': accept || 'application/json' };
+    var headers = { 'x-goog-api-key': normalizeKey(apiKey), 'Accept': accept || 'application/json' };
     if (payload) {
       headers['Content-Type'] = 'application/json';
       headers['Content-Length'] = payload.length;
@@ -59,29 +107,27 @@ var Gemini = (function () {
     return new Promise(function (resolve, reject) {
       var payload = body ? Buffer.from(JSON.stringify(body), 'utf8') : null;
 
-      var req = https.request({
-        hostname: HOST,
-        port: 443,
-        path: urlPath,
-        method: method,
-        headers: headersFor(apiKey, payload),
-        timeout: SOCKET_TIMEOUT
-      }, function (res) {
-        var chunks = [];
-        res.on('data', function (d) { chunks.push(d); });
-        res.on('end', function () {
-          var text = Buffer.concat(chunks).toString('utf8');
-          var json = null;
-          try { json = text ? JSON.parse(text) : {}; } catch (e) { json = null; }
-          resolve({ status: res.statusCode, json: json, text: text });
+      var req = https.request(connectionOptions(urlPath, method, headersFor(apiKey, payload)),
+        function (res) {
+          var chunks = [];
+          res.on('data', function (d) { chunks.push(d); });
+          res.on('end', function () {
+            var text = Buffer.concat(chunks).toString('utf8');
+            var json = null;
+            try { json = text ? JSON.parse(text) : {}; } catch (e) { json = null; }
+            resolve({ status: res.statusCode, json: json, text: text });
+          });
+          res.on('error', reject);
         });
-        res.on('error', reject);
-      });
 
+      abortSlowConnect(req);
       req.on('timeout', function () {
         req.destroy(new Error('Request timed out after ' + (SOCKET_TIMEOUT / 1000) + 's with no response.'));
       });
-      req.on('error', reject);
+      req.on('error', function (e) {
+        noteNetworkError(e);
+        reject(e);
+      });
       if (payload) req.write(payload);
       req.end();
     });
@@ -109,14 +155,8 @@ var Gemini = (function () {
         fn(value);
       }
 
-      var req = https.request({
-        hostname: HOST,
-        port: 443,
-        path: urlPath,
-        method: 'POST',
-        headers: headersFor(apiKey, payload, 'text/event-stream'),
-        timeout: SOCKET_TIMEOUT
-      }, function (res) {
+      var req = https.request(connectionOptions(urlPath, 'POST',
+        headersFor(apiKey, payload, 'text/event-stream')), function (res) {
         headersMs = Date.now() - startedAt;
 
         if (res.statusCode !== 200) {
@@ -203,6 +243,7 @@ var Gemini = (function () {
       entry = { token: token || null, req: req };
       activeRequests.push(entry);
 
+      abortSlowConnect(req);
       req.on('timeout', function () {
         // The socket opened (or the request was sent) but nothing came back.
         // Say exactly how far it got: that is the difference between a dead
@@ -221,10 +262,21 @@ var Gemini = (function () {
         err.firstByteMs = firstByteMs;
         req.destroy(err);
       });
-      req.on('error', function (e) { finish(reject, e); });
+      req.on('error', function (e) {
+        noteNetworkError(e);
+        finish(reject, e);
+      });
       req.write(payload);
       req.end();
     });
+  }
+
+  /** Gemini keys never contain whitespace. Pasting from a browser or chat
+   *  window often adds a newline or a zero-width character, which makes every
+   *  request fail as if the key were wrong. */
+  function normalizeKey(value) {
+    return String(value === undefined || value === null ? '' : value)
+      .replace(/[\s\u00a0\u200b-\u200f\ufeff]+/g, '');
   }
 
   function errorMessage(res) {
@@ -382,24 +434,76 @@ var Gemini = (function () {
 
   /* ------------------------------------------------------------------ models */
 
+  /** Says why Google refused the key, so "invalid" is never guessed. */
+  function keyRefusal(status, res) {
+    var text = '';
+    try { text = String(res.text || ''); } catch (e) { text = ''; }
+    if (res.json && res.json.error) {
+      text += ' ' + String(res.json.error.status || '') + ' ' +
+              String(res.json.error.message || '');
+    }
+
+    if (status === 400 && /API_KEY_INVALID|API key not valid/i.test(text)) {
+      return {
+        kind: 'invalid-key',
+        hint: 'Google says this key is not valid. Copy it again from AI Studio, or create a new key there.'
+      };
+    }
+    if (status === 400 && /API key expired/i.test(text)) {
+      return { kind: 'invalid-key', hint: 'Google says this key has expired. Create a new key in AI Studio.' };
+    }
+    if (status === 401 || status === 403) {
+      if (/SERVICE_DISABLED|has not been used|is disabled/i.test(text)) {
+        return {
+          kind: 'permission',
+          hint: 'The key was accepted, but the Generative Language API is disabled for its Google Cloud project. Enable "Generative Language API" for that project, wait a minute, then press Verify again.'
+        };
+      }
+      if (/referer|referrer|HTTP referrers|IP address|restricted|restriction/i.test(text)) {
+        return {
+          kind: 'permission',
+          hint: 'The key is restricted to websites, IP addresses or specific APIs. This panel sends none of those. Remove the restrictions on the key in Google Cloud Console, or create an unrestricted key in AI Studio.'
+        };
+      }
+      return {
+        kind: 'permission',
+        hint: 'Google refused this key (HTTP ' + status + '). Check that the key is still active and that the Generative Language API is enabled for its project.'
+      };
+    }
+    if (status === 429) {
+      return { kind: 'quota', hint: 'Google is rate-limiting this key right now. Wait a moment, then press Verify again.' };
+    }
+    if (status >= 500) {
+      return { kind: 'server', hint: 'Google returned a server error. The key may be fine — try again in a moment.' };
+    }
+    return { kind: 'unexpected', hint: '' };
+  }
+
   /** Validates the key and returns the list of usable model ids. */
   async function validateKey(apiKey) {
-    if (!apiKey) return { ok: false, error: 'No API key.' };
+    var key = normalizeKey(apiKey);
+    if (!key) return { ok: false, kind: 'empty', status: 0, error: 'No API key.' };
     var res;
     try {
-      res = await request(apiKey, 'GET', '/' + API_VERSION + '/models?pageSize=50', null);
+      res = await request(key, 'GET', '/' + API_VERSION + '/models?pageSize=50', null);
     } catch (e) {
-      return { ok: false, error: 'Network error: ' + e.message };
+      return {
+        ok: false,
+        kind: 'network',
+        status: 0,
+        error: 'Could not reach Google: ' + e.message +
+          ' Check the internet connection, a VPN, or a firewall rule for generativelanguage.googleapis.com.'
+      };
     }
     if (res.status === 200 && res.json && res.json.models) {
       var ids = res.json.models.map(function (m) { return String(m.name || '').replace(/^models\//, ''); });
-      return { ok: true, models: ids };
+      return { ok: true, models: ids, status: 200 };
     }
+
+    var refusal = keyRefusal(res.status, res);
     var msg = errorMessage(res);
-    if (res.status === 400 || res.status === 403) {
-      msg += ' — check that the key is correct and the Generative Language API is enabled for its project.';
-    }
-    return { ok: false, error: msg, status: res.status };
+    if (refusal.hint) msg += ' — ' + refusal.hint;
+    return { ok: false, error: msg, status: res.status, kind: refusal.kind };
   }
 
   /** Lower rank = better default for transcription: fast and cheap first. */
@@ -880,7 +984,7 @@ var Gemini = (function () {
         var finish = res.finish || '';
         if (finish && finish !== 'STOP') {
           if (finish === 'MAX_TOKENS') {
-            throw new Error('Response was truncated (MAX_TOKENS). Shorten the chunk length in Advanced, or pick a model with a larger output budget.');
+            throw new Error('Response was truncated (MAX_TOKENS). Shorten the chunk length in Settings > Advanced, or pick a model with a larger output budget.');
           }
           throw new Error('Generation stopped early: ' + finish + '.');
         }
@@ -942,6 +1046,7 @@ var Gemini = (function () {
   return {
     ok: true,
     validateKey: validateKey,
+    normalizeKey: normalizeKey,
     audioModels: audioModels,
     transcribe: transcribe,
     testModel: testModel,

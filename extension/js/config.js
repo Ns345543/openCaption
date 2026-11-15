@@ -20,7 +20,6 @@ var Config = (function () {
   var DATA_DIR = path.join(NODE.appData, 'CaptionAI');
   var CONFIG_FILE = path.join(DATA_DIR, 'config.json');
   var CAPTION_DIR = path.join(DATA_DIR, 'captions');
-  var TRACK_STATE_FILE = path.join(DATA_DIR, 'caption-tracks.json');
   var TEMP_DIR = path.join(NODE.os.tmpdir(), 'CaptionAI');
 
   var XOR_KEY = 'caption-ai-local-v1';
@@ -41,13 +40,13 @@ var Config = (function () {
     maxLines: 1,
     snapPauses: true,
     autoImport: true,
-    reuseTrack: true,
     ffmpegPath: '',
     chunkSec: 30,
     concurrency: 3,
     silenceDb: -35,
     theme: 'mono',
-    customTheme: null
+    customTheme: null,
+    activeTab: 'transcribe'
   };
 
   function ensureDirs() {
@@ -99,7 +98,9 @@ var Config = (function () {
         merged[k] = (raw[k] === undefined) ? DEFAULTS[k] : raw[k];
       }
     }
-    merged.apiKey = decodeKey(raw.apiKey || '');
+    // Keys never contain whitespace; strip anything a paste picked up so an
+    // old saved value cannot fail every request.
+    merged.apiKey = decodeKey(raw.apiKey || '').replace(/[\s\u00a0\u200b-\u200f\ufeff]+/g, '');
 
     /* --- migration -----------------------------------------------------
        v1 saved a character budget (maxChars) and remembered a literal range
@@ -144,61 +145,46 @@ var Config = (function () {
     return merged;
   }
 
-  function save(settings) {
+  function readStoredKey() {
+    try {
+      if (!fs.existsSync(CONFIG_FILE)) return '';
+      var raw = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+      return (raw && typeof raw.apiKey === 'string') ? raw.apiKey : '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  /**
+   * Writes the settings. `opts.clearKey` is the only way to erase a saved key:
+   * a plain save with an empty key means the caller has not loaded the key
+   * (a second panel instance, or settings captured before the key was typed),
+   * so the encoded key already on disk is kept instead of being blanked.
+   */
+  function save(settings, opts) {
     ensureDirs();
+    opts = opts || {};
+
+    var keepKey = '';
+    if (!opts.clearKey && !settings.apiKey) keepKey = readStoredKey();
+
     var onDisk = {};
     for (var k in settings) {
       if (!Object.prototype.hasOwnProperty.call(settings, k)) continue;
       if (k === 'apiKey') {
-        onDisk.apiKey = encodeKey(settings.apiKey);
+        onDisk.apiKey = keepKey || encodeKey(settings.apiKey);
       } else {
         onDisk[k] = settings[k];
       }
     }
+    if (onDisk.apiKey === undefined) onDisk.apiKey = keepKey || '';
+
     try {
       fs.writeFileSync(CONFIG_FILE, JSON.stringify(onDisk, null, 2), 'utf8');
-      return { ok: true };
+      return { ok: true, keyKept: !!keepKey };
     } catch (e) {
       return { ok: false, error: e.message };
     }
-  }
-
-  /* --- caption track bookkeeping -------------------------------------------
-     Premiere exposes no way to list, update or delete caption tracks from
-     ExtendScript, so the panel remembers which sequences it already gave a
-     track and skips createCaptionTrack on later runs. Keyed by project path +
-     sequenceID, both of which survive panel restarts. */
-  function trackKey(projectPath, sequenceId) {
-    var p = String(projectPath || '').toLowerCase();
-    var s = String(sequenceId || '');
-    if (!s) return '';
-    return p + '|' + s;
-  }
-
-  function readTrackState() {
-    try {
-      if (fs.existsSync(TRACK_STATE_FILE)) {
-        return JSON.parse(fs.readFileSync(TRACK_STATE_FILE, 'utf8')) || {};
-      }
-    } catch (e) { /* a corrupt file just means "not built yet" */ }
-    return {};
-  }
-
-  function hasCaptionTrack(projectPath, sequenceId) {
-    var key = trackKey(projectPath, sequenceId);
-    if (!key) return false;
-    return !!readTrackState()[key];
-  }
-
-  function markCaptionTrack(projectPath, sequenceId) {
-    var key = trackKey(projectPath, sequenceId);
-    if (!key) return;
-    var state = readTrackState();
-    state[key] = Date.now();
-    ensureDirs();
-    try {
-      fs.writeFileSync(TRACK_STATE_FILE, JSON.stringify(state, null, 2), 'utf8');
-    } catch (e) { /* non-fatal: a later run may add another track */ }
   }
 
   function sanitizeName(name) {
@@ -227,11 +213,6 @@ var Config = (function () {
     load: load,
     save: save,
     sanitizeName: sanitizeName,
-    timestamp: timestamp,
-    hasCaptionTrack: hasCaptionTrack,
-    markCaptionTrack: markCaptionTrack,
-    /* Shared obfuscation for independent settings files (AI Chat). */
-    encodeSecret: encodeKey,
-    decodeSecret: decodeKey
+    timestamp: timestamp
   };
 })();

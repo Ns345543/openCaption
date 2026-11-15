@@ -39,13 +39,10 @@ var Premiere = (function () {
     // $.fileName is not the script path. Both loads are idempotent.
     var jsonPath = target + '/jsx/json2.js';
     var hostPath = target + '/jsx/host.jsx';
-    var actionsPath = target + '/jsx/actions.jsx';
     // JSON.stringify escapes spaces/quotes/Unicode correctly for evalScript;
     // building the expression by hand broke on some install paths.
-    // actions.jsx reuses helpers defined by host.jsx, so it must load second.
     var script = '$.evalFile(' + JSON.stringify(jsonPath) + '); ' +
-                 '$.evalFile(' + JSON.stringify(hostPath) + '); ' +
-                 '$.evalFile(' + JSON.stringify(actionsPath) + '); "host-ok"';
+                 '$.evalFile(' + JSON.stringify(hostPath) + '); "host-ok"';
 
     return new Promise(function (resolve) {
       cs.evalScript(script, function (res) {
@@ -56,16 +53,10 @@ var Premiere = (function () {
   }
 
   function describeMissing(fn, reject) {
-    cs.evalScript('String(typeof CaptionAI) + "|" + String(typeof CaptionActions)', function (kind) {
-      var parts = String(kind || '').split('|');
-      if (parts[0] === 'undefined') {
+    cs.evalScript('String(typeof CaptionAI)', function (kind) {
+      if (String(kind || '') === 'undefined') {
         reject(new Error(
           'host.jsx did not load in Premiere, so the panel cannot talk to the timeline. ' +
-          'Restart Premiere Pro (reopening the panel is not enough for ExtendScript).'
-        ));
-      } else if (parts[1] === 'undefined') {
-        reject(new Error(
-          'actions.jsx did not load in Premiere, so the editing agent is unavailable. ' +
           'Restart Premiere Pro (reopening the panel is not enough for ExtendScript).'
         ));
       } else {
@@ -118,31 +109,13 @@ var Premiere = (function () {
     return run('CaptionAI.' + fn + '(' + JSON.stringify(args || {}) + ')', fn, attempt);
   }
 
-  /**
-   * Sends one whitelisted action to actions.jsx. The action name is checked
-   * again on the host side, so a name that is not in the registry can never
-   * reach the timeline even if the panel-side validator is bypassed.
-   */
-  function action(name, params, attempt) {
-    var payload = JSON.stringify({ name: String(name || ''), params: params || {} });
-    return run(
-      'CaptionActions.dispatch(' + JSON.stringify(payload) + ')',
-      'action:' + name,
-      attempt
-    );
-  }
-
   return {
     call: call,
-    action: action,
     ensureHost: ensureHost,
     ping: function () { return call('ping'); },
     getSequenceInfo: function (scope) { return call('getSequenceInfo', { scope: scope }); },
-    getCaptionKey: function (srtPrefix) {
-      return call('getCaptionKey', { srtPrefix: srtPrefix || '' });
-    },
-    importCaptions: function (srtPath, createTrack) {
-      return call('importCaptions', { path: srtPath, createTrack: createTrack !== false });
+    importCaptions: function (srtPath) {
+      return call('importCaptions', { path: srtPath });
     },
     revealInExplorer: function (p) { return call('revealInExplorer', { path: p }); }
   };

@@ -29,9 +29,18 @@ var NODE = (function () {
     api.http = req('http');
     api.child_process = req('child_process');
     api.crypto = req('crypto');
+    api.dns = req('dns');
   } catch (e) {
     return { ok: false, error: 'Node modules failed to load: ' + e.message };
   }
+
+  /* Google and GitHub publish AAAA records; on a network with a dead IPv6
+     route Node dials v6 first and hangs. Resolve IPv4 first everywhere. */
+  try {
+    if (api.dns && typeof api.dns.setDefaultResultOrder === 'function') {
+      api.dns.setDefaultResultOrder('ipv4first');
+    }
+  } catch (e) { /* old Node: the Gemini requests pin the family themselves */ }
 
   api.process = (typeof process !== 'undefined') ? process : g.process;
   api.appData = api.process && api.process.env && api.process.env.APPDATA

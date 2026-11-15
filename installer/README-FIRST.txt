@@ -9,9 +9,6 @@ You need:
   - Windows 10 or 11
   - Premiere Pro 2022 (22.0) or newer
   - A Google Gemini API key: https://aistudio.google.com/apikey  (free tier works)
-  - Optional, for AI Chat: a key for one or more of Gemini, OpenAI, Anthropic
-    Claude, xAI Grok, DeepSeek, Moonshot Kimi or Groq (links are in AI Chat
-    settings)
 
 The panel and ffmpeg are included in this package. Nothing else to download.
 
@@ -59,51 +56,32 @@ will use.
 FIRST RUN
 ---------
 1. Window > Extensions > openCaption.
-2. Paste your Gemini API key, press "Save", then "test" to check it.
+2. On the Transcribe tab, paste your Gemini API key and press "Save key" (it
+   verifies the key too).
 3. Open a sequence in Premiere.
 4. Press "Generate captions".
+
+The panel has four tabs: Transcribe (key, model, language, run and log), Editor
+(every cue from the last run, editable), Animate (reserved for motion presets),
+and Settings (themes, advanced audio options, folders and updates). It reopens
+on the last tab used.
 
 By default the panel uses whatever is selected on the timeline, else the work
 area, else the whole sequence. Captions land on a caption track, and the
 imported .srt is filed under a "99 openCaption" bin at the top of your project.
 The files also stay on disk in %APPDATA%\CaptionAI\captions.
 
-AI CHAT (optional)
-------------------
-Click the chat bubble icon in the panel header (next to the openCaption name)
-to open OpenCaption AI. Pick a provider under the chat header, then open "AI
-Chat settings", paste that provider's key and press Connect. Each provider
-keeps its own key, model and model list; the key links and docs are shown on
-every provider card. Chat history and all chat keys live in
-%APPDATA%\CaptionAI\chat.json; caption settings and the caption Gemini key
-stay in config.json. A key is sent only to that provider's API host. The chat
-Gemini key is separate from the caption Gemini key.
-
-AI EDITING (1.8.0)
-------------------
-The same chat can make edits to the open sequence, not just answer questions.
-Ask for something like "remove silent parts longer than half a second" or "add a
-five-second adjustment layer above the selected clips". The assistant replies
-with a plan; check the preview card and press Execute. openCaption then runs
-only allowlisted Premiere actions and reports what actually happened.
-
-The assistant cannot run arbitrary code. Unknown actions and unknown parameters
-are refused. Locked tracks, offline media and sequences that do not start at
-00:00:00:00 are refused with a message instead of being edited.
-
-Adjustment layers need a one-time import: Premiere exposes no scripting call to
-create one, so openCaption imports its bundled media-free template
-(templates\adjustment-layer.prproj) into the project the first time. That adds
-one item to the Project panel. AI editing was tested on Premiere Pro 26.5.2;
-export_sequence is not implemented in 1.8.0. Undo may not reverse a multi-step
-plan in one step, so save before large edits.
+After a run, open the Editor tab to fix text or timings. "Save SRT" rewrites the
+SRT file; "Import edits" also adds the corrected cues to the active sequence as
+a new caption track at the same timecodes. Premiere cannot replace a caption
+track from a script, so delete the previous track in the Timeline afterwards.
 
 
 UPDATES
 -------
 openCaption 1.5.0 and newer checks GitHub when the panel opens. When a newer
 release exists, a banner appears inside the panel with an "Update now" button.
-The footer also has a "check for updates" link.
+The Settings tab also has a "check for updates" link.
 
 "Update now" downloads the release from the openCaption GitHub page, verifies
 its SHA-256 checksum, and then waits for you to close Premiere Pro. It replaces
@@ -132,17 +110,21 @@ Panel missing from Window > Extensions
 "ffmpeg.exe not found"
   The bundled helper was blocked or deleted. Re-extract the zip and reinstall;
   if the package came without it, install.bat downloads it automatically, or
-  point the panel at any ffmpeg.exe under Advanced.
+  point the panel at any ffmpeg.exe under Settings > Advanced.
 
 "produced no output" / request times out
   The API key is fine but that model is slow on the free tier. Press "test"
   next to Model and choose a flash-lite model.
 
 Every request retries 429
-  Free-tier rate limit. Set Advanced > Parallel to 1 and Chunk length to 60.
+  Free-tier rate limit. Set Settings > Advanced > Parallel to 1 and Chunk length to 60.
 
-Your API keys are stored only on this computer, obfuscated, in
-%APPDATA%\CaptionAI\config.json (caption Gemini key) and chat.json (one key per
-chat provider). Each key is sent only to its own provider. This is local
-obfuscation, not encryption: anyone with access to your Windows account can
-recover a stored key.
+Your API key is stored only on this computer, obfuscated, in
+%APPDATA%\CaptionAI\config.json. It is sent only to Google's Gemini API. This is
+local obfuscation, not encryption: anyone with access to your Windows account can
+recover the stored key.
+
+If the key badge says "invalid", Google rejected the key itself: copy it again
+from https://aistudio.google.com/apikey or create a new one. If it says "not
+verified", the log shows the real reason (API disabled for the project, key
+restrictions, rate limit, or no network).

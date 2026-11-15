@@ -7,12 +7,6 @@
 A CEP panel for Premiere Pro that transcribes your timeline audio with the Google
 Gemini API and drops the result back as a real, editable caption track.
 
-It also includes **OpenCaption AI**, a separate multi-provider chat panel for
-questions about editing, code, captions or anything else. Chat works with Gemini,
-OpenAI, Anthropic Claude, xAI Grok, DeepSeek, Moonshot Kimi and Groq, each with
-its own key and model. The two features are independent: chat has its own keys
-and history, and never touches your caption settings or caption Gemini key.
-
 No Media Encoder, no render, no upload of your whole sequence: the panel reads the
 timeline structure, slices audio straight out of your **original source media**
 with ffmpeg, and sends 30-second windows to Gemini.
@@ -38,8 +32,9 @@ timeline ──► clip list (ExtendScript)          paths + in/out points + pos
 
 ![The openCaption panel in Premiere Pro](docs/screenshots/01-interface.png)
 
-*The whole panel: API key, caption settings, run controls and the live log.
-Six themes, hard edges, no rounded corners.*
+*The Transcribe tab: caption settings, run controls and the live log.
+Hard edges, no rounded corners; the API key, themes and advanced options live in
+Settings. The screenshots below show the same controls before the tab bar was added.*
 
 ![Caption language and transcription settings](docs/screenshots/02-caption-language.png)
 
@@ -54,11 +49,11 @@ English, French — is translated into Spanish before the SRT is built.*
 ![The custom theme editor](docs/screenshots/04-themes.png)
 
 *Build your own palette — background, panel, accent and text — with a live
-preview; it becomes an extra swatch on the theme rail.*
+preview; it becomes an extra swatch on the theme rail in Settings.*
 
 ![Advanced settings](docs/screenshots/05-advanced.png)
 
-*Advanced: ffmpeg path, chunk length, parallel requests, speech threshold and
+*Settings > Advanced: ffmpeg path, chunk length, parallel requests, speech threshold and
 the data/captions folders.*
 
 ![The in-panel updater](docs/screenshots/06-updater.png)
@@ -68,13 +63,23 @@ SHA-256 and installs it after Premiere closes.*
 
 ## Interface
 
+The panel is split into four tabs across the top:
+
+| Tab | What it holds |
+|---|---|
+| **Transcribe** | Model, caption language, caption range and shape, the Generate/Stop controls and the live log. |
+| **Animate** | Reserved for animated caption styles. Not built yet. |
+| **Editor** | Every cue from the last run, with editable text and in/out times. Fix a line, then import the corrected SRT back onto the sequence at the same timecodes. |
+| **Settings** | The Gemini API key, themes and the custom palette editor, advanced audio options, the data/captions folders, and the update check. |
+
 Hard 90° edges throughout, no rounded corners, and six palettes you can switch
-from the theme rail above the cards. The choice is saved with your other settings.
+from the theme rail in **Settings**. The choice is saved with your other settings.
 Press **+** on the rail to build your own palette: pick a background, panel,
 accent and text colour, watch the live preview, then save it as an extra swatch.
 Secondary shades, borders and status colours are derived from those four inputs
 so every control stays readable. A saved custom theme is stored in
 `%APPDATA%\CaptionAI\config.json` too, and can be deleted from the same editor.
+The panel reopens on the tab you used last.
 
 | Theme | Look |
 |---|---|
@@ -85,120 +90,6 @@ so every control stays readable. A saved custom theme is stored in
 | Matrix | phosphor green |
 | Paper | light paper with vermilion accents |
 
-## AI Chat (seven providers)
-
-The chat bubble icon in the header — immediately right of the openCaption
-branding and before the version stamp — opens **OpenCaption AI** as a full-panel
-overlay. The caption panel stays mounted underneath, so closing chat returns you
-to exactly the settings and log you left.
-
-- Streaming answers, Markdown (headings, lists, tables, code blocks with copy),
-  regenerate, stop, copy response and timestamps.
-- Multiple conversations with search, rename-free auto titles, delete one, or
-  clear all behind a confirmation. History survives closing the panel.
-- The sidebar collapses for narrow panels; at the 430 px CEP width it opens as a
-  drawer and closes itself when you pick a conversation or a suggestion.
-- Enter sends, Shift+Enter adds a line, and the composer grows as you type.
-- Suggested prompts and a welcome screen start a new chat.
-- A provider selector and model selector sit under the chat header. Each provider
-  keeps its own key, model and fetched model list; switching never overwrites
-  another provider's settings.
-- Every answer is labelled with the provider and model that produced it, plus
-  token usage when the provider returns it. A conversation can switch providers
-  mid-thread; history is normalised before it is sent, so one provider never
-  receives another provider's private fields.
-- DeepSeek/OpenAI-style reasoning text is shown in a collapsible **reasoning**
-  block and never mixed into the answer.
-
-### AI editing (1.8.0)
-
-The same chat can now carry out edits on the active sequence instead of only
-describing them. Ask in plain language; the assistant returns a plan, the panel
-validates it, shows a preview card and waits for **Execute**. Results come back
-from Premiere's read-back, not from the model's claims.
-
-| Action | What it does |
-|---|---|
-| `get_active_sequence`, `get_selected_clips`, `get_timeline_context` | Read the sequence, selection or whole timeline |
-| `add_adjustment_layer` | Create a real adjustment layer, aligned to the sequence or the selection |
-| `detect_silence`, `remove_silence` | Measure the actual mix with FFmpeg, preview the ranges, then ripple them out |
-| `remove_timeline_gaps` | Close gaps between clips on the chosen tracks |
-| `split_clip`, `move_clip`, `delete_clip`, `duplicate_clip` | Clip editing; linked audio follows, split halves are paired by source and range |
-| `apply_effect`, `set_effect_parameter` | Add any video effect Premiere lists and set a parameter by its displayed name |
-| `set_audio_volume` | Set clip volume in dB (converted to Premiere's linear level) |
-
-Safety model:
-
-- The model can only name an action from this table. Unknown actions and any
-  parameter not declared for that action are rejected by the planner, again by
-  the validator, and again by the executor before anything reaches Premiere.
-- The assistant never writes or runs JavaScript, shell commands or ExtendScript.
-  It produces JSON that the panel maps to fixed handlers.
-- Destructive steps (`remove_silence`, `delete_clip`) always show a confirmation
-  card first. The card lists the affected tracks, clips and time ranges.
-- Locked tracks, offline media, a non-zero sequence start, ambiguous selections
-  and out-of-range times stop the action with a message instead of guessing.
-- A failed step stops the plan; the summary reports which steps ran and which
-  failed. Earlier steps stay applied and the card says so.
-
-Limitations specific to editing:
-
-- **Zero-based sequences only.** If a sequence starts at 01:00:00:00 the panel
-  refuses to edit it rather than risk cutting the wrong place.
-- **Adjustment layers need the bundled template.** Premiere 26.5 exposes no
-  scripting call that creates one, so openCaption imports
-  `extension/templates/adjustment-layer.prproj` once per project and reuses its
-  single media-free item. The import adds one item to the Project panel; it
-  contains no media.
-- **Undo is not guaranteed to be one step.** Premiere groups scripted edits
-  inconsistently. The preview card warns when a plan has several steps.
-- **`export_sequence` is not implemented** in 1.8.0 and is not offered.
-- Effects must already exist in the installed Premiere build; the panel matches
-  names from Premiere's own effect list.
-- Editing actions were tested against Premiere Pro 26.5.2. Other builds may
-  expose different QE calls.
-
-### Provider setup
-
-Open **AI Chat settings** (gear icon) and expand a provider. Paste a key, press
-**Connect** to make a real authenticated request and load its models, then choose
-a model. **Test** re-checks without saving; **Refresh** re-fetches the model list;
-**Remove key** deletes only that provider's key. Keys are masked by default and
-can be shown temporarily.
-
-| Provider | Get a key | API docs |
-|---|---|---|
-| Google Gemini | https://aistudio.google.com/apikey | https://ai.google.dev/gemini-api/docs |
-| OpenAI | https://platform.openai.com/api-keys | https://developers.openai.com/api/docs |
-| Anthropic Claude | https://console.anthropic.com/settings/keys | https://platform.claude.com/docs/en/api/overview |
-| xAI Grok | https://console.x.ai/ | https://docs.x.ai/ |
-| DeepSeek | https://platform.deepseek.com/api_keys | https://api-docs.deepseek.com/ |
-| Moonshot Kimi | https://platform.moonshot.ai/ | https://platform.moonshot.ai/docs |
-| Groq | https://console.groq.com/keys | https://console.groq.com/docs |
-
-All seven use the provider's official HTTPS API. Model lists are fetched when
-you connect and can be refreshed. If a provider does not expose a list, or the
-request fails, a maintained fallback list is shown and **Custom model ID** lets
-you type an exact model name.
-
-**The chat Gemini key is separate from the Gemini caption key.** Chat stores one
-credential per provider, so a key configured for captions is never reused or
-altered by AI Chat. Keys are only sent to their own provider's host.
-
-Connection states: Not configured, Connecting, Connected, Invalid API key, Rate
-limited, No credits / quota, Model unavailable, Network error, Service
-unavailable.
-
-Chat state lives in `%APPDATA%\CaptionAI\chat.json`; caption settings stay in
-`config.json`. Chat keys are stored with the same local XOR + base64 obfuscation
-as the caption key. That is **not encryption** — anyone with access to your
-Windows account can recover a key. Keys never appear in the chat transcript or
-the panel log, and error messages are scrubbed before they are shown.
-
-The provider layer lives in `js/providers.js`: one adapter per wire format
-(Gemini, Anthropic Messages, OpenAI-compatible), with `js/groq.js` kept as the
-Groq adapter. Adding a provider does not touch the chat UI or caption pipeline.
-
 ## Requirements
 
 | | |
@@ -207,7 +98,6 @@ Groq adapter. Adding a provider does not touch the chat UI or caption pipeline.
 | OS | Windows 10/11 |
 | ffmpeg | bundled in the installer — nothing to install |
 | Gemini API key | https://aistudio.google.com/apikey (free tier works) |
-| AI Chat keys | optional, one or more providers — see the provider table above |
 
 Costs are per transcription, billed to your own key. A one-hour sequence is roughly
 120 short audio requests.
@@ -315,7 +205,8 @@ media, and whether `createCaptionTrack()` exists on your build. It changes nothi
 
 ## Use
 
-1. Paste your Gemini API key, press **Save key** (it validates against the API).
+1. Open the **Settings** tab, paste your Gemini API key and press **Save key**
+   (it validates against the API).
 2. Open the sequence you want captioned.
 3. Pick the caption range:
    - **Auto** (default) — selected clips if anything is selected, else the work
@@ -340,16 +231,15 @@ A dedicated `*-transcribe` model always answers in the spoken language, and a
 general model can ignore the instruction when the scripts differ. In both cases
 the panel translates the cues in a second text-only pass before building the SRT.
 Cue timings are preserved, and if the translation request fails the original
-captions are kept with a warning instead of being lost.
+captions are kept with a warning instead of being lost. Spelling is not touched
+during the run: the **Editor** tab checks it on demand (see *Editing captions*).
 
 The panel writes `…\CaptionAI\captions\<sequence>_<timestamp>.srt` and, by default,
-imports it and calls `createCaptionTrack()` so a captions track appears on the
-sequence. Only the first run per sequence creates a track: the panel records that
-sequence in `%APPDATA%\CaptionAI\caption-tracks.json` and, on later runs, still
-imports the SRT but leaves the existing track alone (see **Reuse caption track**).
-ExtendScript cannot list, replace or delete caption tracks, so Premiere adds a
-brand-new track on every `createCaptionTrack()` call — this is what produced the
-stack of duplicate `Caption 1`, `Caption 2`… tracks.
+imports it and calls `createCaptionTrack()` so a new captions track appears on the
+sequence. Premiere's ExtendScript cannot replace or delete an existing caption
+track, so each run adds a new one; delete old tracks in Premiere's Text panel if
+you do not want them. Turn off **Build caption track** if you only want the SRT
+file.
 
 Imported SRTs are filed in a bin called **99 openCaption** at the project root
 (created on first use), so they never mix into your own bins. Each caption there
@@ -359,6 +249,63 @@ order; after that, numbered items keep their numbers and the next run continues
 after the highest one. Other items and bins are left alone. If Premiere refuses,
 the SRT is still on disk — drag it into the Project panel and onto the sequence,
 or onto the track you want to replace.
+
+## Editing captions
+
+Every successful run hands its cues to the **Editor** tab; the **⋮** menu on the
+card opens your own `.srt` there instead. Each cue shows its in/out time and its
+text: fix a typo, retime a line, or delete a cue that should not be there.
+**Import edits**, **Save SRT** and **Check spelling** stay on the card; **Replace
+words** and the file actions live under **⋮**:
+
+- **Import SRT…** (⋮ menu, or the **Import SRT…** button shown while the editor
+  is empty) opens any `.srt` from disk. That file is treated as a source:
+  Save SRT and Import edits write new files under `%APPDATA%\CaptionAI`, so the
+  original is never changed.
+- **Export SRT…** (⋮ menu) writes the cues to an `.srt` wherever you pick in the
+  save dialog. When an imported file is open, choosing that same file is refused.
+- **Export text…** (⋮ menu) saves the transcript as a plain `.txt`, one cue per
+  line and no timecodes, wherever you pick. Without a native dialog — for example outside
+  Premiere — both exports go next to the imported SRT when one is open, or to
+  `%APPDATA%\CaptionAI\captions` (SRT) and `%APPDATA%\CaptionAI\transcripts`
+  (text).
+- **Replace words…** (⋮ menu) applies a list of find → replace pairs to every
+  cue: whole words only, any case, so `Mikbanger` becomes `Mukhbanger` while
+  `mikbangers` stays as it is. A blank "replace" deletes the word, and a cue
+  with no text left is dropped. The list is
+  remembered in `%APPDATA%\CaptionAI\replacements.json`; nothing changes until
+  you press **Apply to cues**.
+- **Remove words…** (⋮ menu) deletes filler words like `um`, `uh`, `like` or
+  `matlab` wherever they appear as a whole word, in any case. Leftover double
+  spaces, a space before a comma and repeated commas are tidied up, and cues
+  left with no text are dropped instead of staying blank. The list is remembered
+  in `%APPDATA%\CaptionAI\remove-words.json`; nothing changes until you press
+  **Apply to cues**.
+- **Check spelling** sends the cue text to the AI on demand. It names the language
+  it finds (English, Hinglish, Hindi, Spanish and so on) and returns spelling
+  corrections only: Roman-Hinglish slips, Hindi spellings, missing accents,
+  capitalised names. Nothing is changed by the request.
+- **Save SRT** writes the corrected cues back to the same
+  `…\CaptionAI\captions\…srt` file. Nothing is imported.
+- **Import edits** saves that file and imports a copy as a new caption track on
+  the active sequence at the same timecodes. Premiere's ExtendScript can only
+  create caption tracks — it cannot replace or delete one — so the previous
+  track stays where it is. Delete it in the Timeline (right-click its header)
+  once the new one looks right. If a different sequence is active, the panel
+  says so instead of pretending the cues moved.
+
+After a spelling check, every cue with a proposed fix shows the corrected text
+underneath with **Use this** / **keep mine**, and **Fix all (n)** applies every
+suggestion at once. Edits you type yourself replace the suggestion for that cue.
+The check never translates, rephrases or changes the number of lines.
+
+Times accept `hh:mm:ss,mmm`, `mm:ss.mmm` or plain seconds. Invalid times and
+empty cues are marked in red and block the import instead of writing a broken
+SRT. The editor keeps a draft in `%APPDATA%\CaptionAI\editor.json`, so closing
+the panel does not lose your fixes; **reload** discards the draft and reads the
+SRT on disk again. Each imported copy is written to
+`%APPDATA%\CaptionAI\edits` under a new name, so Premiere reads the edited file
+rather than a cached one.
 
 ## Settings that matter
 
@@ -379,15 +326,6 @@ or onto the track you want to replace.
   back to plain proportional splitting.
 - **Build caption track** — on by default. The imported SRT is also placed on the
   sequence as an editable caption track. Turn it off to only produce the SRT file.
-- **Reuse caption track** — on by default. The panel remembers each sequence it
-  already captioned (keyed by project path + sequence ID in
-  `%APPDATA%\CaptionAI\caption-tracks.json`), so repeat runs rewrite the SRT and
-  re-file it in the **99 openCaption** bin without stacking another track on the
-  timeline. The log says which track was kept. Turn it off when you genuinely want
-  a second, separate track — e.g. to keep an old translation next to a new one.
-  Sequences captioned before this change are recognised from the SRTs already in
-  the bin (their on-disk names still start with the sequence name), so they are
-  not given an extra track either.
 - **Chunk length** — shorter = better timestamp accuracy, more requests. 30s is the
   sweet spot; 10s is noticeably tighter but ~3× the calls.
 - **Parallel** — how many chunks are in flight at once (default 3). This is the main
@@ -480,22 +418,12 @@ subtitles.
   language inside the same script (English speech, Spanish captions) relies on the
   model following the instruction; check the first cues before a long run.
 - **API key storage** is local obfuscation, not encryption. Anyone with access to
-  your Windows account can read `%APPDATA%\CaptionAI\config.json` (caption Gemini
-  key) or `chat.json` (every chat provider key). That is fine for a personal tool;
-  it is why no key is bundled.
-- **Provider limits and model names change.** AI Chat fetches live model lists
-  when it can, but each provider controls availability, quotas and pricing. A key
-  can connect while a particular model is unavailable to that account; the panel
-  reports that as **Model unavailable** and lets you choose another.
-- **Live provider testing needs your keys.** The adapter suite uses mocked HTTP
-  responses; a provider you have not configured is reported as not configured,
-  not as working. No reply is ever faked.
-- **AI Chat answers can be wrong.** Treat them like any other assistant output and
-  check anything that matters. Chat history is stored on this computer only.
-- **AI edits run real commands.** They only run from the allowlist and only after
-  you press **Execute**, but they change the open project. Work on a saved
-  project, read the preview card, and check the timeline afterwards. Premiere's
-  undo history may not reverse a multi-step plan in one step.
+  your Windows account can read `%APPDATA%\CaptionAI\config.json` and recover the
+  Gemini key. That is fine for a personal tool; it is why no key is bundled.
+- **Provider limits and model names change.** The panel fetches live model lists,
+  but Google controls availability, quotas and pricing. A key can verify while a
+  particular model is unavailable to that account; the panel reports the API's
+  answer and lets you choose another model.
 
 ## Troubleshooting
 
@@ -509,7 +437,17 @@ The manifest's `--enable-nodejs` / `--mixed-context` flags didn't apply. Re-inst
 and restart; verify `CSXS/manifest.xml` is being read (not a stale copy).
 
 **"ffmpeg.exe not found"**
-Run `setup-ffmpeg.ps1`, or point the panel at any `ffmpeg.exe` under Advanced.
+Run `setup-ffmpeg.ps1`, or point the panel at any `ffmpeg.exe` under Settings > Advanced.
+
+**The key badge says "invalid" or "not verified"**
+The log shows what Google actually answered. **invalid** means Google returned
+`API_KEY_INVALID` — copy the key again from AI Studio, or create a new one.
+**not verified** means Google refused the request for another reason: a disabled
+Generative Language API, a key restricted to websites/IPs/apps, a rate limit, a
+server error, or no network from the panel. The log line names the cause and what
+to change. Keys are stripped of pasted whitespace and saved before verification;
+the masked field and the badge's **saved** state confirm the key reached
+`%APPDATA%\CaptionAI\config.json`.
 
 **"Premiere rejected the script"**
 `host.jsx` didn't load. Restart Premiere. While debugging, load
@@ -540,7 +478,7 @@ does not, switch to a **flash-lite** model — on a free-tier key it answered th
 audio probe in ~2 s while `gemini-3.8-flash` took ~100 s.
 
 **Every request retries 429**
-You are hitting the free-tier rate limit. Set **Advanced → Parallel** to 1 and
+You are hitting the free-tier rate limit. Set **Settings → Advanced → Parallel** to 1 and
 raise the chunk length to 60 s.
 
 ## Layout
@@ -550,28 +488,17 @@ extension/
   CSXS/manifest.xml        panel registration, Node + mixed context
   index.html               panel UI
   css/style.css
-  css/chat.css             AI Chat overlay
   js/nodeglue.js           Node built-ins (fs, https, child_process)
   js/CSInterface.js        minimal CEP bridge
   js/config.js             settings in %APPDATA%\CaptionAI\config.json
-  js/providers.js          seven AI Chat provider adapters (streaming, models, errors)
-  js/groq.js               Groq transport used by the Groq adapter
-  js/chat.js               AI Chat overlay, provider state, history in chat.json
-  js/actionRegistry.js     allowlisted editing actions and parameter schemas
-  js/actionPlanner.js      model → validated plan (or answer)
-  js/actionValidator.js    strict schema checks for plans
-  js/actionExecutor.js     runs a validated plan, stops on first failure
-  js/actionPreview.js      in-chat preview/confirmation card
-  js/premiereContext.js    reads sequence/selection context for the planner
-  js/silenceDetector.js    sequence-mix silence analysis via ffmpeg
   js/premiere.js           async wrapper over ExtendScript
   js/audio.js              ffmpeg slicing, PCM assembly, speech envelope
-  jsx/actions.jsx          ExtendScript action handlers (allowlist only)
-  templates/adjustment-layer.prproj  media-free adjustment-layer item
   js/gemini.js             REST calls, JSON schema, retries
-  js/srt.js                word timing, cue clean-up, wrapping, SRT output
+  js/srt.js                word timing, cue clean-up, wrapping, SRT build + parse
+  js/editor.js             Editor tab: cue list, word replacer/remover, SRT open/export, transcript export, edited-SRT import
   js/roman.js              Devanagari → Roman Hinglish
   js/translate.js          forces the selected caption language
+  js/proofread.js          language-aware spelling pass over the cue lines
   js/update.js             GitHub release check + verified self-updater
   js/app.js                pipeline + UI
   jsx/host.jsx             ExtendScript: clip scan, SRT import, caption track

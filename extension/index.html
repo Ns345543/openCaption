@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>openCaption</title>
   <link rel="stylesheet" href="css/style.css" />
-  <link rel="stylesheet" href="css/chat.css" />
   <script src="js/theme.js"></script>
 </head>
 <body>
@@ -22,23 +21,31 @@
       </span>
     </div>
     <div class="host-wrap">
-      <button class="chat-launch" id="chatLaunch" type="button" title="AI Chat"
-              aria-label="AI Chat" aria-haspopup="dialog" aria-controls="chatShell">
-        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
-          <path d="M4 5.5h16v11H10l-6 4.2V5.5z" fill="none" stroke="currentColor" stroke-width="1.7" />
-          <path d="M13.2 7.8l.7 1.9 1.9.7-1.9.7-.7 1.9-.7-1.9-1.9-.7 1.9-.7.7-1.9z" fill="currentColor" />
-        </svg>
-      </button>
       <div class="host" id="hostInfo">OPENCAPTION</div>
     </div>
   </header>
 
-  <nav class="themebar" aria-label="Theme">
-    <span class="themebar-label">Theme</span>
-    <div class="themes" id="themes"></div>
-    <button class="theme-add" id="customThemeBtn" type="button"
-            title="Create a custom theme" aria-label="Create a custom theme">+</button>
-    <span class="theme-name" id="themeName">mono</span>
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button class="tab active" id="tabBtnTranscribe" type="button" role="tab"
+            data-tab="transcribe" aria-selected="true" aria-controls="panelTranscribe">
+      <span class="tab-idx" aria-hidden="true">01</span>
+      <span class="tab-label">Transcribe</span>
+    </button>
+    <button class="tab" id="tabBtnAnimate" type="button" role="tab"
+            data-tab="animate" aria-selected="false" aria-controls="panelAnimate" tabindex="-1">
+      <span class="tab-idx" aria-hidden="true">02</span>
+      <span class="tab-label">Animate</span>
+    </button>
+    <button class="tab" id="tabBtnEditor" type="button" role="tab"
+            data-tab="editor" aria-selected="false" aria-controls="panelEditor" tabindex="-1">
+      <span class="tab-idx" aria-hidden="true">03</span>
+      <span class="tab-label">Editor</span>
+    </button>
+    <button class="tab" id="tabBtnSettings" type="button" role="tab"
+            data-tab="settings" aria-selected="false" aria-controls="panelSettings" tabindex="-1">
+      <span class="tab-idx" aria-hidden="true">04</span>
+      <span class="tab-label">Settings</span>
+    </button>
   </nav>
 
   <section class="updatebar hidden" id="updateBar" aria-live="polite" aria-label="Update">
@@ -64,398 +71,387 @@
     <pre class="update-notes hidden" id="updateNotes"></pre>
   </section>
 
-  <main class="scroll">
+  <main class="scroll" id="mainScroll">
 
-    <!-- ================= custom theme editor ================= -->
-    <section class="card theme-editor hidden" id="themeEditor" aria-label="Custom theme">
-      <div class="card-head">
-        <span class="num">+</span>
-        <h2>Custom theme</h2>
-        <button class="linkbtn" id="themeEditorClose" type="button" title="Close the editor">close</button>
+    <!-- ================= 01 · transcribe ================= -->
+    <section class="tabpanel" id="panelTranscribe" role="tabpanel" aria-labelledby="tabBtnTranscribe">
+
+      <!-- transcription -->
+      <section class="card">
+        <div class="card-head">
+          <span class="num">01</span>
+          <h2>Transcription</h2>
+        </div>
+
+        <div class="grid2">
+          <div class="field">
+            <span class="field-head">Model
+              <span class="field-actions">
+                <button id="testModel" class="linkbtn" title="Text-only request to check the model responds">test</button>
+                <button id="refreshModels" class="linkbtn" title="Ask the API which models this key can use">refresh</button>
+              </span>
+            </span>
+            <select id="model">
+              <option value="gemini-3.5-flash-lite">gemini-3.5-flash-lite</option>
+              <option value="gemini-3.8-flash">gemini-3.8-flash</option>
+              <option value="gemini-3.7-flash">gemini-3.7-flash</option>
+              <option value="gemini-3.5-flash">gemini-3.5-flash</option>
+              <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+            </select>
+          </div>
+
+          <label class="field">
+            <span>Caption language</span>
+            <select id="language">
+              <option value="auto">Auto-detect (spoken language)</option>
+              <option value="Hinglish">Hinglish (Roman)</option>
+              <option value="Hindi">Hindi (Devanagari)</option>
+              <option value="English">English</option>
+              <option value="Spanish">Spanish</option>
+              <option value="French">French</option>
+              <option value="German">German</option>
+              <option value="Italian">Italian</option>
+              <option value="Portuguese">Portuguese</option>
+              <option value="Japanese">Japanese</option>
+              <option value="Korean">Korean</option>
+              <option value="Chinese (Simplified)">Chinese (Simplified)</option>
+              <option value="Arabic">Arabic</option>
+              <option value="Russian">Russian</option>
+              <option value="Turkish">Turkish</option>
+            </select>
+          </label>
+        </div>
+
+        <p class="hint tight">Captions are written in this language. Speech in another language is translated; Auto-detect keeps whatever the speaker uses.</p>
+
+        <div class="field">
+          <span>Caption range</span>
+          <div class="seg" id="scope">
+            <button data-scope="auto" class="active" title="Selected clips, else work area, else whole sequence">Auto</button>
+            <button data-scope="sequence" title="The whole sequence">Sequence</button>
+            <button data-scope="workarea" title="Only the work area">Work area</button>
+            <button data-scope="selection" title="Only the selected clips">Selection</button>
+          </div>
+          <p class="hint tight">Auto = selected clips, else the work area, else the whole sequence.</p>
+        </div>
+
+        <div class="grid2">
+          <label class="field">
+            <span>Words / line</span>
+            <select id="wordsPerLine">
+              <option value="1">1</option>
+              <option value="2" selected>2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Lines / caption</span>
+            <select id="maxLines">
+              <option value="1" selected>1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+            </select>
+          </label>
+        </div>
+        <p class="hint tight" id="captionShape">Two words per caption.</p>
+
+        <div class="switches">
+          <label class="switch">
+            <input type="checkbox" id="snapPauses" checked />
+            <span class="track"><span class="knob"></span></span>
+            <span class="switch-label">Word-level sync</span>
+          </label>
+          <label class="switch">
+            <input type="checkbox" id="autoImport" checked />
+            <span class="track"><span class="knob"></span></span>
+            <span class="switch-label">Build caption track</span>
+          </label>
+        </div>
+        <p class="hint tight">Word-level sync pins every caption to the moment the words are actually audible in the audio, measured from the waveform (recommended).</p>
+      </section>
+
+      <!-- run -->
+      <div class="run-row">
+        <button id="generate" class="btn primary wide">
+          <span class="btn-label">Generate captions</span>
+          <span class="btn-glow"></span>
+        </button>
+        <button id="cancel" class="btn stop hidden" title="Stop generating (Esc)">Stop</button>
       </div>
 
-      <label class="field">
-        <span>Name</span>
-        <input id="customThemeName" maxlength="18" placeholder="My theme" spellcheck="false" />
-      </label>
-
-      <div class="color-grid">
-        <label class="color-field">
-          <span>Background</span>
-          <span class="color-row">
-            <input type="color" id="customBg" value="#0b0b0b" aria-label="Background colour" />
-            <input class="hex" id="customBgHex" value="#0b0b0b" maxlength="7" spellcheck="false" />
-          </span>
-        </label>
-
-        <label class="color-field">
-          <span>Panel</span>
-          <span class="color-row">
-            <input type="color" id="customPanel" value="#161616" aria-label="Panel colour" />
-            <input class="hex" id="customPanelHex" value="#161616" maxlength="7" spellcheck="false" />
-          </span>
-        </label>
-
-        <label class="color-field">
-          <span>Accent</span>
-          <span class="color-row">
-            <input type="color" id="customAccent" value="#ffffff" aria-label="Accent colour" />
-            <input class="hex" id="customAccentHex" value="#ffffff" maxlength="7" spellcheck="false" />
-          </span>
-        </label>
-
-        <label class="color-field">
-          <span>Text</span>
-          <span class="color-row">
-            <input type="color" id="customText" value="#f2f2f2" aria-label="Text colour" />
-            <input class="hex" id="customTextHex" value="#f2f2f2" maxlength="7" spellcheck="false" />
-          </span>
-        </label>
+      <div class="progress-wrap">
+        <div class="progress" id="progressTrack"><div class="bar" id="bar"></div></div>
+        <div class="progress-label" id="progressLabel">idle</div>
       </div>
 
-      <div class="theme-preview" aria-hidden="true">
-        <div class="tp-canvas" id="tpBg">
-          <div class="tp-card" id="tpCard">
-            <span class="tp-title" id="tpText">openCaption</span>
-            <span class="tp-sub" id="tpMuted">hinglish · roman</span>
-            <span class="tp-cta" id="tpAccent">generate</span>
+      <div class="log-wrap">
+        <div class="log-head">
+          <span>Log</span>
+          <div class="log-actions">
+            <button class="log-copy" id="copyLogBtn" type="button" title="Copy the whole log to the clipboard">copy</button>
+            <button class="log-clear" id="clearLogBtn" type="button" title="Clear the log">clear</button>
           </div>
         </div>
+        <div class="log" id="log"></div>
       </div>
 
-      <div class="row wrap">
-        <button class="btn primary sm" id="customThemeSave" type="button">Save &amp; apply</button>
-        <button class="btn sm ghost" id="customThemeDelete" type="button">Delete</button>
-        <button class="btn sm ghost" id="customThemeCancel" type="button">Cancel</button>
-      </div>
     </section>
 
-    <!-- ================= 01 · key ================= -->
-    <section class="card api-card" id="apiCard">
-      <div class="card-head" id="apiHead" role="button" tabindex="0"
-           aria-expanded="true" aria-controls="apiBody" title="Collapse API access">
-        <span class="num">01</span>
-        <h2>API access</h2>
-        <span class="badge" id="keyBadge">no key</span>
-        <span class="chev" aria-hidden="true">›</span>
-      </div>
+    <!-- ================= 02 · animate ================= -->
+    <section class="tabpanel hidden" id="panelAnimate" role="tabpanel" aria-labelledby="tabBtnAnimate">
+      <section class="card">
+        <div class="card-head">
+          <span class="num">02</span>
+          <h2>Animated captions</h2>
+          <span class="badge">next</span>
+        </div>
+        <p class="soon-title">Motion presets for caption tracks</p>
+        <p class="hint tight">Caption animation is not built yet. This tab is reserved for the motion presets; nothing runs here until they are added.</p>
+      </section>
+    </section>
 
-      <div class="api-body" id="apiBody">
-        <div class="row">
-          <div class="input-wrap">
-            <input id="apiKey" type="password" placeholder="AIza…" spellcheck="false" autocomplete="off" />
-            <button id="toggleKey" class="ghost-btn" title="Show / hide">show</button>
+    <!-- ================= 03 · editor ================= -->
+    <section class="tabpanel hidden" id="panelEditor" role="tabpanel" aria-labelledby="tabBtnEditor">
+      <section class="card">
+        <div class="card-head">
+          <span class="num">03</span>
+          <h2>Subtitle editor</h2>
+          <button class="linkbtn editor-reload hidden" id="editorReload" type="button"
+                  title="Discard edits and reload the SRT from disk">reload</button>
+          <span class="badge" id="editorBadge">no run</span>
+          <div class="menu-wrap">
+            <button class="kebab" id="editorMenuBtn" type="button"
+                    aria-haspopup="true" aria-expanded="false" aria-label="More actions"
+                    title="Replace words, import SRT, export SRT, export text">⋮</button>
+            <div class="menu hidden" id="editorMenu" role="menu" aria-labelledby="editorMenuBtn">
+              <button class="menu-item" id="editorRemoveMenu" type="button" role="menuitem">Remove words…</button>
+              <button class="menu-item" id="editorReplaceMenu" type="button" role="menuitem">Replace words…</button>
+              <button class="menu-item" id="editorImportSrt" type="button" role="menuitem">Import SRT…</button>
+              <button class="menu-item" id="editorExportSrt" type="button" role="menuitem">Export SRT…</button>
+              <button class="menu-item" id="editorExport" type="button" role="menuitem">Export text…</button>
+            </div>
+          </div>
+        </div>
+
+        <p class="hint tight" id="editorMeta">Generate captions on the Transcribe tab and every cue from that run appears here.</p>
+
+        <div id="editorEmpty">
+          <p class="soon-title">No cues yet</p>
+          <p class="hint tight">The editor holds the captions from your last run, or an SRT you import. Nothing to edit until then.</p>
+          <div class="row wrap editor-actions">
+            <button class="btn primary sm" id="editorImportSrtEmpty" type="button">Import SRT…</button>
+          </div>
+        </div>
+
+        <div class="hidden" id="editorBody">
+          <div class="row wrap editor-actions">
+            <button class="btn primary sm" id="editorImport" type="button">Import edits</button>
+            <button class="btn sm" id="editorSave" type="button">Save SRT</button>
+            <button class="btn sm" id="editorCheck" type="button"
+                    title="Ask the AI to detect the language and suggest spelling fixes">Check spelling</button>
+            <button class="btn sm hidden" id="editorFixAll" type="button">Fix all</button>
+          </div>
+
+          <div class="replacer hidden" id="replacePanel">
+            <div class="replacer-head">
+              <span class="replacer-title">Replace words</span>
+              <button class="linkbtn" id="replaceClose" type="button" title="Close the replacer">close</button>
+            </div>
+            <div id="replaceList"></div>
+            <p class="hint tight">Whole words, any case, across every cue. Capitalisation is kept. Your list is remembered. A cue left with no text is dropped.</p>
+            <div class="row wrap replacer-actions">
+              <button class="linkbtn" id="replaceAdd" type="button">+ add row</button>
+              <button class="btn sm" id="replaceApply" type="button">Apply to cues</button>
+            </div>
+          </div>
+
+          <div class="replacer hidden" id="removePanel">
+            <div class="replacer-head">
+              <span class="replacer-title">Remove words</span>
+              <button class="linkbtn" id="removeClose" type="button" title="Close the remover">close</button>
+            </div>
+            <div id="removeList"></div>
+            <p class="hint tight">Whole words, any case, across every cue. Leftover spaces and commas are tidied, and a cue left with no text is dropped. Your list is remembered.</p>
+            <div class="row wrap replacer-actions">
+              <button class="linkbtn" id="removeAdd" type="button">+ add row</button>
+              <button class="btn sm" id="removeApply" type="button">Remove from cues</button>
+            </div>
+          </div>
+
+          <div class="cue-list" id="cueList"></div>
+
+          <p class="hint tight">
+            Check spelling sends the cue text to the AI, which names the language and suggests fixes for
+            misspelled words only — nothing is changed until you choose Fix all or a single cue.
+            The ⋮ menu opens your own SRT, exports the cues as an SRT, or exports a plain-text transcript
+            (one cue per line). A file you opened there is never overwritten.
+            Import edits writes the corrected SRT and adds it to the active sequence as a new caption track
+            at the same timecodes. Premiere cannot replace a caption track from a script, so delete the
+            previous track in the Timeline afterwards.
+          </p>
+        </div>
+
+        <p class="editor-status hidden" id="editorStatus" role="status"></p>
+      </section>
+    </section>
+
+    <!-- ================= 04 · settings ================= -->
+    <section class="tabpanel hidden" id="panelSettings" role="tabpanel" aria-labelledby="tabBtnSettings">
+
+      <!-- key -->
+      <section class="card api-card" id="apiCard">
+        <div class="card-head" id="apiHead" role="button" tabindex="0"
+             aria-expanded="true" aria-controls="apiBody" title="Collapse API access">
+          <span class="num">01</span>
+          <h2>API access</h2>
+          <span class="badge" id="keyBadge">no key</span>
+          <span class="chev" aria-hidden="true">›</span>
+        </div>
+
+        <div class="api-body" id="apiBody">
+          <div class="row">
+            <div class="input-wrap">
+              <input id="apiKey" type="password" placeholder="AIza…" spellcheck="false" autocomplete="off" />
+              <button id="toggleKey" class="ghost-btn" title="Show / hide">show</button>
+            </div>
+          </div>
+
+          <div class="row wrap">
+            <button id="saveKey" class="btn primary sm">Save key</button>
+            <button id="testKey" class="btn sm">Verify</button>
+            <button id="clearKey" class="btn sm ghost">Clear</button>
+          </div>
+
+          <p class="hint">
+            Key from <a href="https://aistudio.google.com/apikey" data-ext="link">aistudio.google.com/apikey</a>
+            · stored locally in <code>%APPDATA%\CaptionAI</code>
+          </p>
+        </div>
+      </section>
+
+      <!-- appearance -->
+      <section class="card">
+        <div class="card-head">
+          <span class="num">02</span>
+          <h2>Appearance</h2>
+          <span class="theme-name" id="themeName">mono</span>
+        </div>
+        <div class="theme-row">
+          <div class="themes" id="themes"></div>
+          <button class="theme-add" id="customThemeBtn" type="button"
+                  title="Create a custom theme" aria-label="Create a custom theme">+</button>
+        </div>
+        <p class="hint tight">Themes recolour the whole panel. “+” builds a custom palette.</p>
+      </section>
+
+      <!-- custom theme editor -->
+      <section class="card theme-editor hidden" id="themeEditor" aria-label="Custom theme">
+        <div class="card-head">
+          <span class="num">+</span>
+          <h2>Custom theme</h2>
+          <button class="linkbtn" id="themeEditorClose" type="button" title="Close the editor">close</button>
+        </div>
+
+        <label class="field">
+          <span>Name</span>
+          <input id="customThemeName" maxlength="18" placeholder="My theme" spellcheck="false" />
+        </label>
+
+        <div class="color-grid">
+          <label class="color-field">
+            <span>Background</span>
+            <span class="color-row">
+              <input type="color" id="customBg" value="#0b0b0b" aria-label="Background colour" />
+              <input class="hex" id="customBgHex" value="#0b0b0b" maxlength="7" spellcheck="false" />
+            </span>
+          </label>
+
+          <label class="color-field">
+            <span>Panel</span>
+            <span class="color-row">
+              <input type="color" id="customPanel" value="#161616" aria-label="Panel colour" />
+              <input class="hex" id="customPanelHex" value="#161616" maxlength="7" spellcheck="false" />
+            </span>
+          </label>
+
+          <label class="color-field">
+            <span>Accent</span>
+            <span class="color-row">
+              <input type="color" id="customAccent" value="#ffffff" aria-label="Accent colour" />
+              <input class="hex" id="customAccentHex" value="#ffffff" maxlength="7" spellcheck="false" />
+            </span>
+          </label>
+
+          <label class="color-field">
+            <span>Text</span>
+            <span class="color-row">
+              <input type="color" id="customText" value="#f2f2f2" aria-label="Text colour" />
+              <input class="hex" id="customTextHex" value="#f2f2f2" maxlength="7" spellcheck="false" />
+            </span>
+          </label>
+        </div>
+
+        <div class="theme-preview" aria-hidden="true">
+          <div class="tp-canvas" id="tpBg">
+            <div class="tp-card" id="tpCard">
+              <span class="tp-title" id="tpText">openCaption</span>
+              <span class="tp-sub" id="tpMuted">hinglish · roman</span>
+              <span class="tp-cta" id="tpAccent">generate</span>
+            </div>
           </div>
         </div>
 
         <div class="row wrap">
-          <button id="saveKey" class="btn primary sm">Save key</button>
-          <button id="testKey" class="btn sm">Verify</button>
-          <button id="clearKey" class="btn sm ghost">Clear</button>
+          <button class="btn primary sm" id="customThemeSave" type="button">Save &amp; apply</button>
+          <button class="btn sm ghost" id="customThemeDelete" type="button">Delete</button>
+          <button class="btn sm ghost" id="customThemeCancel" type="button">Cancel</button>
+        </div>
+      </section>
+
+      <!-- advanced -->
+      <details class="card adv">
+        <summary>
+          <span class="chev">›</span> Advanced
+        </summary>
+
+        <label class="field">
+          <span>ffmpeg executable</span>
+          <div class="row">
+            <input id="ffmpegPath" placeholder="auto-detect" spellcheck="false" />
+            <button id="browseFfmpeg" class="btn sm">Browse</button>
+          </div>
+        </label>
+
+        <div class="grid3">
+          <label class="field">
+            <span>Chunk (s)</span>
+            <input id="chunkSec" type="number" min="10" max="120" value="30" />
+          </label>
+          <label class="field">
+            <span>Parallel</span>
+            <input id="concurrency" type="number" min="1" max="6" value="3" />
+          </label>
+          <label class="field">
+            <span>Speech dB</span>
+            <input id="silenceDb" type="number" min="-60" max="-10" value="-35" />
+          </label>
         </div>
 
-        <p class="hint">
-          Key from <a href="https://aistudio.google.com/apikey" data-ext="link">aistudio.google.com/apikey</a>
-          · stored locally in <code>%APPDATA%\CaptionAI</code>
-        </p>
-      </div>
+        <div class="row wrap">
+          <button id="openDataFolder" class="btn sm ghost">Data folder</button>
+          <button id="openCaptionFolder" class="btn sm ghost">Captions folder</button>
+        </div>
+      </details>
+
+      <footer class="foot">
+        <span class="dot"></span>
+        <span id="version"></span>
+        <button class="linkbtn foot-check" id="checkUpdates" type="button">check for updates</button>
+      </footer>
+
     </section>
-
-    <!-- ================= 02 · transcription ================= -->
-    <section class="card">
-      <div class="card-head">
-        <span class="num">02</span>
-        <h2>Transcription</h2>
-      </div>
-
-      <div class="grid2">
-        <div class="field">
-          <span class="field-head">Model
-            <span class="field-actions">
-              <button id="testModel" class="linkbtn" title="Text-only request to check the model responds">test</button>
-              <button id="refreshModels" class="linkbtn" title="Ask the API which models this key can use">refresh</button>
-            </span>
-          </span>
-          <select id="model">
-            <option value="gemini-3.5-flash-lite">gemini-3.5-flash-lite</option>
-            <option value="gemini-3.8-flash">gemini-3.8-flash</option>
-            <option value="gemini-3.7-flash">gemini-3.7-flash</option>
-            <option value="gemini-3.5-flash">gemini-3.5-flash</option>
-            <option value="gemini-2.5-flash">gemini-2.5-flash</option>
-            <option value="__custom">Custom…</option>
-          </select>
-        </div>
-
-        <label class="field">
-          <span>Caption language</span>
-          <select id="language">
-            <option value="auto">Auto-detect (spoken language)</option>
-            <option value="Hinglish">Hinglish (Roman)</option>
-            <option value="Hindi">Hindi (Devanagari)</option>
-            <option value="English">English</option>
-            <option value="Spanish">Spanish</option>
-            <option value="French">French</option>
-            <option value="German">German</option>
-            <option value="Italian">Italian</option>
-            <option value="Portuguese">Portuguese</option>
-            <option value="Japanese">Japanese</option>
-            <option value="Korean">Korean</option>
-            <option value="Chinese (Simplified)">Chinese (Simplified)</option>
-            <option value="Arabic">Arabic</option>
-            <option value="Russian">Russian</option>
-            <option value="Turkish">Turkish</option>
-          </select>
-        </label>
-      </div>
-
-      <p class="hint tight">Captions are written in this language. Speech in another language is translated; Auto-detect keeps whatever the speaker uses.</p>
-
-      <label class="field hidden" id="customModelWrap">
-        <span>Custom model id</span>
-        <input id="customModel" placeholder="e.g. gemini-3.8-flash" spellcheck="false" />
-      </label>
-
-      <div class="field">
-        <span>Caption range</span>
-        <div class="seg" id="scope">
-          <button data-scope="auto" class="active" title="Selected clips, else work area, else whole sequence">Auto</button>
-          <button data-scope="sequence" title="The whole sequence">Sequence</button>
-          <button data-scope="workarea" title="Only the work area">Work area</button>
-          <button data-scope="selection" title="Only the selected clips">Selection</button>
-        </div>
-        <p class="hint tight">Auto = selected clips, else the work area, else the whole sequence.</p>
-      </div>
-
-      <div class="grid2">
-        <label class="field">
-          <span>Words / line</span>
-          <select id="wordsPerLine">
-            <option value="1">1</option>
-            <option value="2" selected>2</option>
-            <option value="3">3</option>
-            <option value="4">4</option>
-          </select>
-        </label>
-        <label class="field">
-          <span>Lines / caption</span>
-          <select id="maxLines">
-            <option value="1" selected>1</option>
-            <option value="2">2</option>
-            <option value="3">3</option>
-          </select>
-        </label>
-      </div>
-      <p class="hint tight" id="captionShape">Two words per caption.</p>
-
-      <div class="switches">
-        <label class="switch">
-          <input type="checkbox" id="snapPauses" checked />
-          <span class="track"><span class="knob"></span></span>
-          <span class="switch-label">Word-level sync</span>
-        </label>
-        <label class="switch">
-          <input type="checkbox" id="autoImport" checked />
-          <span class="track"><span class="knob"></span></span>
-          <span class="switch-label">Build caption track</span>
-        </label>
-        <label class="switch">
-          <input type="checkbox" id="reuseTrack" checked />
-          <span class="track"><span class="knob"></span></span>
-          <span class="switch-label">Reuse caption track</span>
-        </label>
-      </div>
-      <p class="hint tight">Word-level sync pins every caption to the moment the words are actually audible in the audio, measured from the waveform (recommended). Reuse caption track keeps one openCaption caption track per sequence instead of adding a new one on every run.</p>
-    </section>
-
-    <!-- ================= run ================= -->
-    <div class="run-row">
-      <button id="generate" class="btn primary wide">
-        <span class="btn-label">Generate captions</span>
-        <span class="btn-glow"></span>
-      </button>
-      <button id="cancel" class="btn stop hidden" title="Stop generating (Esc)">Stop</button>
-    </div>
-
-    <div class="progress-wrap">
-      <div class="progress" id="progressTrack"><div class="bar" id="bar"></div></div>
-      <div class="progress-label" id="progressLabel">idle</div>
-    </div>
-
-    <div class="log-wrap">
-      <div class="log-head">
-        <span>Log</span>
-        <div class="log-actions">
-          <button class="log-copy" id="copyLogBtn" type="button" title="Copy the whole log to the clipboard">copy</button>
-          <button class="log-clear" id="clearLogBtn" type="button" title="Clear the log">clear</button>
-        </div>
-      </div>
-      <div class="log" id="log"></div>
-    </div>
-
-    <!-- ================= advanced ================= -->
-    <details class="card adv">
-      <summary>
-        <span class="chev">›</span> Advanced
-      </summary>
-
-      <label class="field">
-        <span>ffmpeg executable</span>
-        <div class="row">
-          <input id="ffmpegPath" placeholder="auto-detect" spellcheck="false" />
-          <button id="browseFfmpeg" class="btn sm">Browse</button>
-        </div>
-      </label>
-
-      <div class="grid3">
-        <label class="field">
-          <span>Chunk (s)</span>
-          <input id="chunkSec" type="number" min="10" max="120" value="30" />
-        </label>
-        <label class="field">
-          <span>Parallel</span>
-          <input id="concurrency" type="number" min="1" max="6" value="3" />
-        </label>
-        <label class="field">
-          <span>Speech dB</span>
-          <input id="silenceDb" type="number" min="-60" max="-10" value="-35" />
-        </label>
-      </div>
-
-      <div class="row wrap">
-        <button id="openDataFolder" class="btn sm ghost">Data folder</button>
-        <button id="openCaptionFolder" class="btn sm ghost">Captions folder</button>
-      </div>
-    </details>
-
-    <footer class="foot">
-      <span class="dot"></span>
-      <span id="version"></span>
-      <button class="linkbtn foot-check" id="checkUpdates" type="button">check for updates</button>
-    </footer>
   </main>
-</div>
-
-<!-- ================= AI Chat (separate overlay) ================= -->
-<div class="chat-shell hidden" id="chatShell" role="dialog" aria-modal="true"
-     aria-hidden="true" aria-label="openCaption AI Chat">
-  <aside class="chat-side" id="chatSide" aria-label="Conversations">
-    <div class="chat-side-head">
-      <span class="chat-side-brand">
-        <span class="chat-side-mark" aria-hidden="true">AI</span>
-        <span>OpenCaption AI</span>
-      </span>
-      <button type="button" class="chat-icon-btn" id="chatSideToggle"
-              title="Hide conversations" aria-label="Hide conversations">‹</button>
-    </div>
-
-    <button type="button" class="btn primary chat-new" id="chatNew">
-      <span aria-hidden="true">+</span> New chat
-    </button>
-
-    <input class="chat-search" id="chatSearch" type="search" placeholder="Search chats"
-           aria-label="Search chats" spellcheck="false" />
-
-    <div class="chat-list" id="chatList" role="list"></div>
-
-    <div class="chat-side-foot">
-      <div class="chat-status state-off" id="chatSideStatus">
-        <span class="chat-dot"></span><span id="chatStatusText">Not connected</span>
-      </div>
-      <div class="chat-side-links">
-        <button type="button" class="linkbtn" id="chatSettingsBtn">settings</button>
-        <button type="button" class="linkbtn" id="chatClearAll">clear all</button>
-      </div>
-    </div>
-  </aside>
-
-  <section class="chat-main">
-    <header class="chat-top" id="chatTop">
-      <button type="button" class="chat-icon-btn hidden" id="chatSideShow"
-              title="Show conversations" aria-label="Show conversations">›</button>
-      <div class="chat-title-wrap">
-        <span class="chat-title" id="chatTitle">OpenCaption AI</span>
-        <span class="chat-sub" id="chatSub">Groq</span>
-      </div>
-      <div class="chat-status-pill state-off" id="chatStatusPill" title="Connection status">
-        <span class="chat-dot"></span><span id="chatStatusPillText">Not connected</span>
-      </div>
-      <button type="button" class="chat-icon-btn" id="chatSettingsOpen"
-              title="AI Chat settings" aria-label="AI Chat settings">
-        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
-          <path d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6z" fill="none" stroke="currentColor" stroke-width="1.6" />
-          <path d="M12 3.2v2.1M12 18.7v2.1M3.2 12h2.1M18.7 12h2.1M5.8 5.8l1.5 1.5M16.7 16.7l1.5 1.5M18.2 5.8l-1.5 1.5M7.3 16.7l-1.5 1.5"
-                fill="none" stroke="currentColor" stroke-width="1.6" />
-        </svg>
-      </button>
-      <button type="button" class="btn sm ghost chat-close" id="chatClose">Close</button>
-    </header>
-
-    <div class="chat-config" id="chatConfig">
-      <div class="chat-prov" id="chatProv">
-        <button type="button" class="chat-prov-btn" id="chatProviderBtn"
-                aria-haspopup="listbox" aria-expanded="false" title="Choose AI provider">
-          <span class="prov-mark" id="chatProviderMark" aria-hidden="true">·</span>
-          <span class="chat-prov-name" id="chatProviderName">Provider</span>
-          <span class="prov-caret" aria-hidden="true">▾</span>
-        </button>
-        <div class="chat-prov-menu hidden" id="chatProviderMenu" role="listbox"
-             aria-label="AI providers"></div>
-      </div>
-
-      <select class="chat-model-select" id="chatModel" aria-label="Model"></select>
-      <button type="button" class="chat-icon-btn chat-model-refresh" id="chatModelRefresh"
-              title="Refresh model list" aria-label="Refresh model list">
-        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
-          <path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6" fill="none" stroke="currentColor"
-                stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
-      </button>
-    </div>
-
-    <div class="chat-body">
-      <div class="chat-view chat-chat-view" id="chatChatView">
-        <div class="chat-messages" id="chatMessages" aria-live="polite"></div>
-
-        <div class="chat-connect-banner hidden" id="chatConnectBanner">
-          <span class="chat-connect-copy">
-            <strong id="chatConnectName">This provider</strong> is not connected yet.
-          </span>
-          <button type="button" class="btn primary sm" id="chatConnectProvider">Connect provider</button>
-        </div>
-
-        <div class="chat-composer">
-          <textarea id="chatInput" rows="1" placeholder="Message OpenCaption AI…"
-                    spellcheck="false" aria-label="Message OpenCaption AI"></textarea>
-          <div class="chat-composer-row">
-            <span class="chat-composer-hint">Enter to send · Shift+Enter for a new line</span>
-            <button type="button" class="btn sm ghost hidden" id="chatStop">Stop</button>
-            <button type="button" class="btn primary sm" id="chatSend" disabled>Send</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="chat-view chat-settings hidden" id="chatSettingsView">
-        <div class="chat-settings">
-          <div class="chat-settings-head">
-            <button type="button" class="linkbtn" id="chatSettingsBack">← back to chat</button>
-            <span class="chat-settings-provider" id="chatSettingsProvider">PROVIDER</span>
-          </div>
-
-          <h2>AI Chat settings</h2>
-          <p class="chat-settings-copy">
-            Each provider has its own key and model. Keys are stored only on this computer,
-            obfuscated in <code>%APPDATA%\CaptionAI\chat.json</code> — that is not encryption.
-            An API key never appears in chat history, logs, or error messages. The Gemini key
-            used for captions is separate and is not used here.
-          </p>
-
-          <div id="chatProviderCards"></div>
-
-          <p class="chat-settings-note">AI responses can be wrong. Check anything important.</p>
-        </div>
-      </div>
-    </div>
-  </section>
 </div>
 
 <script src="js/nodeglue.js"></script>
@@ -465,19 +461,11 @@
 <script src="js/audio.js"></script>
 <script src="js/gemini.js"></script>
 <script src="js/srt.js"></script>
+<script src="js/editor.js"></script>
 <script src="js/roman.js"></script>
 <script src="js/translate.js"></script>
+<script src="js/proofread.js"></script>
 <script src="js/update.js"></script>
-<script src="js/groq.js"></script>
-<script src="js/providers.js"></script>
-<script src="js/actionRegistry.js"></script>
-<script src="js/actionValidator.js"></script>
-<script src="js/premiereContext.js"></script>
-<script src="js/actionPlanner.js"></script>
-<script src="js/silenceDetector.js"></script>
-<script src="js/actionExecutor.js"></script>
-<script src="js/actionPreview.js"></script>
-<script src="js/chat.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

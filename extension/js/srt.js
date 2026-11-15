@@ -599,9 +599,56 @@ var Srt = (function () {
     return out.join('\r\n') + '\r\n';
   }
 
+  /**
+   * Reads an SRT back into cues. Used by the editor's reload button; the panel
+   * only ever parses files it wrote itself, so this is deliberately narrow:
+   * a numbered or unnumbered block with a --> line, then the text lines.
+   * Multi-line captions keep their line breaks in `text`.
+   */
+  function parse(text) {
+    var blocks = String(text || '')
+      .replace(/^\uFEFF/, '')
+      .replace(/\r\n?/g, '\n')
+      .split(/\n{2,}/);
+    var out = [];
+
+    function seconds(h, m, s, ms) {
+      return Number(h) * 3600 + Number(m) * 60 + Number(s) +
+        Number(ms) / Math.pow(10, String(ms).length);
+    }
+
+    for (var i = 0; i < blocks.length; i++) {
+      var lines = blocks[i].split('\n');
+      var at = -1;
+      var m = null;
+      for (var l = 0; l < lines.length; l++) {
+        m = lines[l].match(/^\s*(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})/);
+        if (m) { at = l; break; }
+      }
+      if (at < 0) continue;
+
+      var body = [];
+      for (var b = at + 1; b < lines.length; b++) {
+        var line = lines[b].trim();
+        if (line) body.push(line);
+      }
+      if (!body.length) continue;
+
+      var start = seconds(m[1], m[2], m[3], m[4]);
+      var end = seconds(m[5], m[6], m[7], m[8]);
+      if (!isFinite(start) || !isFinite(end) || end < start) continue;
+
+      out.push({ start: start, end: end, text: body.join('\n') });
+    }
+
+    out.sort(function (a, b) { return a.start - b.start || a.end - b.end; });
+    return out;
+  }
+
   return {
     MIN_DUR: MIN_DUR,
     formatTime: formatTime,
+    parse: parse,
     wrapLines: wrapLines,
     splitLongCues: splitLongCues,
     tidy: tidy,

@@ -193,7 +193,7 @@ var Audio = (function () {
 
     ffmpegPath = '';
     lastError = 'ffmpeg.exe was not found. Reinstall openCaption so the bundled copy is restored, ' +
-                'or point the panel at ffmpeg.exe under Advanced.';
+                'or point the panel at ffmpeg.exe under Settings > Advanced.';
     return '';
   }
 

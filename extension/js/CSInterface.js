@@ -85,6 +85,52 @@ CSInterface.prototype.showOpenDialog = function (title, initialPath, types) {
   return res.data[0];
 };
 
+/** Native open dialog. Returns {ok, path}, {cancelled:true} or {unavailable:true}. */
+CSInterface.prototype.pickFile = function (title, initialPath, types) {
+  if (typeof window.cep === 'undefined' || !window.cep.fs) {
+    return { ok: false, unavailable: true };
+  }
+
+  var res = null;
+  try {
+    res = window.cep.fs.showOpenDialog(false, false, title || 'Open file',
+      initialPath || '', types || []);
+  } catch (e) {
+    return { ok: false, unavailable: true };
+  }
+
+  if (!res || res.err !== 0 || !res.data || !res.data.length) {
+    return { ok: false, cancelled: true };
+  }
+  return { ok: true, path: String(res.data[0]) };
+};
+
+/** Native save dialog. Returns {ok, path}, {cancelled:true} or {unavailable:true}. */
+CSInterface.prototype.showSaveDialog = function (title, initialPath, types, defaultName) {
+  if (typeof window.cep === 'undefined' || !window.cep.fs) {
+    return { ok: false, unavailable: true };
+  }
+
+  var fsApi = window.cep.fs;
+  var res = null;
+  try {
+    if (typeof fsApi.showSaveDialogEx === 'function') {
+      res = fsApi.showSaveDialogEx(title || 'Save file', initialPath || '',
+        types || [], defaultName || '');
+    } else if (typeof fsApi.showSaveDialog === 'function') {
+      res = fsApi.showSaveDialog(title || 'Save file', initialPath || '',
+        types || [], defaultName || '');
+    } else {
+      return { ok: false, unavailable: true };
+    }
+  } catch (e) {
+    return { ok: false, unavailable: true };
+  }
+
+  if (!res || res.err !== 0 || !res.data) return { ok: false, cancelled: true };
+  return { ok: true, path: String(res.data) };
+};
+
 window.SystemPath = {
   USER_DATA: 'userData',
   COMMON_FILES: 'commonFiles',

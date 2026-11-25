@@ -14,15 +14,25 @@ var Theme = (function () {
     { id: 'mono',     name: 'Mono',     swatchBg: '#0b0b0b', swatchAccent: '#ffffff' },
     { id: 'premiere', name: 'Premiere', swatchBg: '#1d1d1d', swatchAccent: '#005cc8',
       title: 'Premiere Pro — sky blue on black' },
-    { id: 'void',   name: 'Void',   swatchBg: '#0b0818', swatchAccent: '#a78bfa' },
-    { id: 'ember',  name: 'Ember',  swatchBg: '#150c06', swatchAccent: '#fb923c' },
-    { id: 'matrix', name: 'Matrix', swatchBg: '#061208', swatchAccent: '#4ade80' },
-    { id: 'paper',  name: 'Paper',  swatchBg: '#f8f6f0', swatchAccent: '#d92d20' }
+    { id: 'void',     name: 'Void',     swatchBg: '#0b0818', swatchAccent: '#a78bfa' },
+    { id: 'midnight', name: 'Midnight', swatchBg: '#06070c', swatchAccent: '#7aa2ff',
+      title: 'Midnight — ASCII dark blue' },
+    { id: 'ember',    name: 'Ember',    swatchBg: '#150c06', swatchAccent: '#fb923c' },
+    { id: 'matrix',   name: 'Matrix',   swatchBg: '#061208', swatchAccent: '#4ade80' },
+    { id: 'paper',    name: 'Paper',    swatchBg: '#f8f6f0', swatchAccent: '#d92d20' },
+    { id: 'pond',     name: 'Pond',     swatchBg: '#f6f3ec', swatchAccent: '#2a5fe6',
+      title: 'Pond — ASCII warm ivory' }
   ];
 
   var STORE_KEY = 'openCaption.theme';
   var CUSTOM_KEY = 'openCaption.customTheme';
+  var RADIUS_KEY = 'openCaption.cornerRadius';
+  var MOTION_KEY = 'openCaption.uiMotion';
+  var GLASS_KEY = 'openCaption.liquidGlass';
   var DEFAULT = 'mono';
+  var DEFAULT_RADIUS = 0;
+  var MIN_RADIUS = 0;
+  var MAX_RADIUS = 16;
   var ids = THEMES.map(function (t) { return t.id; });
 
   var custom = null;
@@ -113,7 +123,16 @@ var Theme = (function () {
       '--grid': rgba(c.text, light ? 0.08 : 0.06),
       '--beam': rgba(c.accent, light ? 0.12 : 0.16),
       '--scroll': rgba(c.text, 0.35),
-      '--glow': rgba(c.accent, 0.35)
+      '--glow': rgba(c.accent, 0.35),
+      '--glass-a': light ? 'rgba(255,255,255,0.44)' : rgba(c.panel, 0.56),
+      '--glass-b': light ? 'rgba(255,255,255,0.16)' : rgba(c.bg, 0.42),
+      '--glass-bar': light ? 'rgba(255,255,255,0.54)' : rgba(c.panel, 0.68),
+      '--glass-edge': light ? rgba(c.text, 0.14) : 'rgba(255,255,255,0.15)',
+      '--glass-rim': light ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.26)',
+      '--glass-rim-low': light ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.08)',
+      '--glass-glow': rgba(c.accent, light ? 0.10 : 0.12),
+      '--glass-sheen': light ? 'rgba(255,255,255,0.38)' : 'rgba(255,255,255,0.09)',
+      '--glass-shadow': light ? '0 10px 30px rgba(28,40,96,0.12), 0 2px 8px rgba(28,40,96,0.06)' : '0 12px 32px rgba(0,0,0,0.48), 0 2px 8px rgba(0,0,0,0.32)'
     };
   }
 
@@ -190,7 +209,70 @@ var Theme = (function () {
       buttons[i].classList.toggle('active', on);
       buttons[i].setAttribute('aria-pressed', on ? 'true' : 'false');
     }
+    if (typeof Ambient !== 'undefined' && Ambient.syncTheme) Ambient.syncTheme();
     return id;
+  }
+
+  function clampRadius(value) {
+    var n = Math.round(Number(value));
+    if (!isFinite(n)) return DEFAULT_RADIUS;
+    return Math.min(MAX_RADIUS, Math.max(MIN_RADIUS, n));
+  }
+
+  function applyRadius(value) {
+    var r = clampRadius(value);
+    var root = document.documentElement;
+    root.style.setProperty('--r-base', r + 'px');
+    root.setAttribute('data-corners', r > 0 ? 'rounded' : 'sharp');
+    try { localStorage.setItem(RADIUS_KEY, String(r)); } catch (e) { /* private mode */ }
+
+    var slider = document.getElementById('cornerRadius');
+    if (slider) {
+      if (Number(slider.value) !== r) slider.value = String(r);
+      slider.style.setProperty('--pct', ((r - MIN_RADIUS) / (MAX_RADIUS - MIN_RADIUS) * 100) + '%');
+    }
+
+    var valEl = document.getElementById('cornerRadiusVal');
+    if (valEl) {
+      valEl.textContent = r === 0 ? '0px · Sharp' : r + 'px · Rounded';
+    }
+
+    var sharpBtn = document.getElementById('cornerSharpBtn');
+    var roundBtn = document.getElementById('cornerRoundedBtn');
+    if (sharpBtn) sharpBtn.classList.toggle('active', r === 0);
+    if (roundBtn) roundBtn.classList.toggle('active', r > 0);
+    return r;
+  }
+
+  function currentRadius() {
+    var raw = document.documentElement.style.getPropertyValue('--r-base');
+    return clampRadius(parseFloat(raw));
+  }
+
+  function applyMotion(enabled) {
+    var on = enabled !== false;
+    document.documentElement.setAttribute('data-motion', on ? 'on' : 'off');
+    try { localStorage.setItem(MOTION_KEY, on ? '1' : '0'); } catch (e) { /* private mode */ }
+    var toggle = document.getElementById('uiMotion');
+    if (toggle) toggle.checked = on;
+    return on;
+  }
+
+  function currentMotion() {
+    return document.documentElement.getAttribute('data-motion') !== 'off';
+  }
+
+  function applyGlass(enabled) {
+    var on = !!enabled;
+    document.documentElement.setAttribute('data-glass', on ? 'on' : 'off');
+    try { localStorage.setItem(GLASS_KEY, on ? '1' : '0'); } catch (e) { /* private mode */ }
+    var toggle = document.getElementById('liquidGlass');
+    if (toggle) toggle.checked = on;
+    return on;
+  }
+
+  function currentGlass() {
+    return document.documentElement.getAttribute('data-glass') === 'on';
   }
 
   /* ------------------------------------------------------------- rail */
@@ -245,20 +327,41 @@ var Theme = (function () {
   /* ------------------------------------------------------------ pre-paint */
 
   var saved = DEFAULT;
+  var savedRadius = DEFAULT_RADIUS;
+  var savedMotion = true;
+  var savedGlass = false;
   try {
     saved = localStorage.getItem(STORE_KEY) || DEFAULT;
     var rawCustom = localStorage.getItem(CUSTOM_KEY);
     if (rawCustom) setCustom(JSON.parse(rawCustom), false);
+    var rawRadius = localStorage.getItem(RADIUS_KEY);
+    if (rawRadius !== null) savedRadius = clampRadius(rawRadius);
+    var rawMotion = localStorage.getItem(MOTION_KEY);
+    if (rawMotion === '0' || rawMotion === 'false') savedMotion = false;
+    var rawGlass = localStorage.getItem(GLASS_KEY);
+    if (rawGlass === '1' || rawGlass === 'true') savedGlass = true;
   } catch (e) {
     saved = DEFAULT;
+    savedRadius = DEFAULT_RADIUS;
+    savedMotion = true;
+    savedGlass = false;
   }
   apply(saved);
+  applyRadius(savedRadius);
+  applyMotion(savedMotion);
+  applyGlass(savedGlass);
 
   return {
     THEMES: THEMES,
     ids: ids,
     apply: apply,
     current: current,
+    applyRadius: applyRadius,
+    currentRadius: currentRadius,
+    applyMotion: applyMotion,
+    currentMotion: currentMotion,
+    applyGlass: applyGlass,
+    currentGlass: currentGlass,
     mount: mount,
     refresh: refresh,
     setCustom: setCustom,

@@ -11,6 +11,7 @@
 <div class="app">
 
   <div class="backdrop" aria-hidden="true"></div>
+  <canvas class="ambient-canvas" id="ambientCanvas" aria-hidden="true"></canvas>
 
   <header class="topbar">
     <div class="brand">
@@ -77,10 +78,11 @@
     <section class="tabpanel" id="panelTranscribe" role="tabpanel" aria-labelledby="tabBtnTranscribe">
 
       <!-- transcription -->
-      <section class="card">
-        <div class="card-head">
+      <section class="card collapsible" id="transcribeCard" data-card-id="transcribe.main">
+        <div class="card-head" role="button" tabindex="0" aria-expanded="true" title="Collapse Transcription">
           <span class="num">01</span>
           <h2>Transcription</h2>
+          <span class="chev" aria-hidden="true">›</span>
         </div>
 
         <div class="grid2">
@@ -138,20 +140,11 @@
         <div class="grid2">
           <label class="field">
             <span>Words / line</span>
-            <select id="wordsPerLine">
-              <option value="1">1</option>
-              <option value="2" selected>2</option>
-              <option value="3">3</option>
-              <option value="4">4</option>
-            </select>
+            <input id="wordsPerLine" type="number" min="1" max="50" step="1" value="2" inputmode="numeric" />
           </label>
           <label class="field">
             <span>Lines / caption</span>
-            <select id="maxLines">
-              <option value="1" selected>1</option>
-              <option value="2">2</option>
-              <option value="3">3</option>
-            </select>
+            <input id="maxLines" type="number" min="1" max="20" step="1" value="1" inputmode="numeric" />
           </label>
         </div>
         <p class="hint tight" id="captionShape">Two words per caption.</p>
@@ -200,21 +193,187 @@
 
     <!-- ================= 02 · animate ================= -->
     <section class="tabpanel hidden" id="panelAnimate" role="tabpanel" aria-labelledby="tabBtnAnimate">
-      <section class="card">
-        <div class="card-head">
-          <span class="num">02</span>
-          <h2>Animated captions</h2>
-          <span class="badge">next</span>
+
+      <!-- mogrt & text style library -->
+      <section class="card collapsible" id="animateLibCard" data-card-id="animate.library">
+        <div class="card-head" role="button" tabindex="0" aria-expanded="true" title="Collapse MOGRTs & styles">
+          <span class="num">01</span>
+          <h2>MOGRTs &amp; styles</h2>
+          <button class="linkbtn" id="mogrtRescan" type="button" title="Refresh imported MOGRTs and text styles">refresh</button>
+          <span class="badge" id="mogrtCountBadge">0</span>
+          <span class="chev" aria-hidden="true">›</span>
         </div>
-        <p class="soon-title">Motion presets for caption tracks</p>
-        <p class="hint tight">Caption animation is not built yet. This tab is reserved for the motion presets; nothing runs here until they are added.</p>
+
+        <div class="row wrap mogrt-toolbar">
+          <button class="btn primary sm" id="mogrtImportBtn" type="button">+ .mogrt…</button>
+          <button class="btn sm" id="styleImportBtn" type="button" title="Import Premiere Pro .prtextstyle file">+ .prtextstyle…</button>
+          <button class="btn sm ghost" id="mogrtFolderBtn" type="button" title="Open imported library folder">Folder</button>
+        </div>
+
+        <div class="mogrt-selected hidden" id="mogrtSelectedBox">
+          <div class="mogrt-selected-main">
+            <div class="mogrt-thumb-wrap" id="mogrtSelectedPreview">
+              <img class="mogrt-thumb hidden" id="mogrtSelectedThumb" alt="" />
+              <video class="mogrt-hover-video hidden" id="mogrtSelectedVideo" muted loop playsinline preload="none"></video>
+              <span class="mogrt-mono" id="mogrtSelectedMono">M</span>
+              <span class="mogrt-hover-sim" id="mogrtSelectedSim" aria-hidden="true"></span>
+            </div>
+            <div class="mogrt-selected-info">
+              <div class="mogrt-selected-name" id="mogrtSelectedName">—</div>
+              <div class="mogrt-selected-meta" id="mogrtSelectedMeta">—</div>
+            </div>
+          </div>
+
+          <div class="cat-assign-row">
+            <select class="cat-select" id="assetCatSelect" aria-label="Category"></select>
+            <button class="pill-btn hidden" id="stylePreviewBtn" type="button" title="Attach a PNG/JPG preview image for this text style">Preview img…</button>
+            <button class="pill-btn hidden" id="catDelBtn" type="button" title="Delete selected custom category">Del tag</button>
+          </div>
+
+          <div class="cat-new-row hidden" id="catNewRow">
+            <input id="catNewInput" type="text" maxlength="24" placeholder="New category name…" spellcheck="false" autocomplete="off" />
+            <button class="btn sm primary" id="catNewSave" type="button">Add</button>
+            <button class="btn sm ghost" id="catNewCancel" type="button">Cancel</button>
+          </div>
+        </div>
+
+        <div class="mogrt-filters hidden" id="mogrtFiltersWrap">
+          <label class="field mogrt-filter-field" id="mogrtSearchWrap">
+            <input id="mogrtSearch" type="text" placeholder="Search MOGRTs, styles, categories…"
+                   spellcheck="false" autocomplete="off" />
+          </label>
+          <div class="filter-bar" id="mogrtFilterBar" role="tablist" aria-label="Filter by category or type"></div>
+        </div>
+
+        <div class="mogrt-grid" id="mogrtGrid" role="radiogroup" aria-label="Imported text MOGRTs and styles"></div>
+        <div class="mogrt-empty hidden" id="mogrtEmptyHint">
+          <p class="soon-title" id="mogrtEmptyTitle">Nothing imported yet</p>
+          <p class="hint tight" id="mogrtEmptyBody">Click <strong>+ .mogrt…</strong> or <strong>+ .prtextstyle…</strong> to add caption presets. Hover any card to preview.</p>
+        </div>
       </section>
+
+      <!-- apply to timeline -->
+      <section class="card collapsible" id="animateApplyCard" data-card-id="animate.apply">
+        <div class="card-head" role="button" tabindex="0" aria-expanded="true" title="Collapse Apply to timeline">
+          <span class="num">02</span>
+          <h2>Apply to timeline</h2>
+          <span class="badge" id="mogrtCueBadge">no cues</span>
+          <span class="chev" aria-hidden="true">›</span>
+        </div>
+
+        <div class="style-action-box hidden" id="styleActionBox">
+          <div class="style-action-head">
+            <span class="style-action-label">Selected <code>.prtextstyle</code></span>
+            <span class="badge ok" id="styleSelectedBadge">—</span>
+          </div>
+          <p class="style-font-meta hidden" id="styleFontMeta"></p>
+          <div class="row wrap style-action-btns">
+            <button class="btn sm ghost" id="styleSendBtn" type="button" title="Import selected .prtextstyle into Premiere's Project bin">Import to Project Bin</button>
+          </div>
+          <label class="switch style-auto-switch">
+            <input type="checkbox" id="styleAutoImport" checked />
+            <span class="track"><span class="knob"></span></span>
+            <span class="switch-label">Auto-apply .prtextstyle on Transcribe</span>
+          </label>
+          <p class="hint tight">Applies styled captions directly on a timeline track and imports the <code>.prtextstyle</code> into <code>99 openCaption / Text Styles</code>.</p>
+        </div>
+
+        <div class="mogrt-apply-box" id="mogrtApplyBox">
+          <p class="hint tight mogrt-cue-summary" id="mogrtCueSummary">Generate captions on the Transcribe tab or import an SRT in Editor first.</p>
+
+          <div class="grid2">
+            <label class="field" id="mogrtParamField">
+              <span>MOGRT text field</span>
+              <select id="mogrtParamSelect"></select>
+            </label>
+
+            <label class="field">
+              <span>Video track</span>
+              <select id="mogrtTrackSelect">
+                <option value="auto" selected>Auto (empty track)</option>
+                <option value="0">V1</option>
+                <option value="1">V2</option>
+                <option value="2">V3</option>
+                <option value="3">V4</option>
+                <option value="4">V5</option>
+                <option value="5">V6</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="field">
+            <span>Screen position</span>
+            <div class="seg" id="mogrtPosition">
+              <button type="button" data-pos="upper">Upper</button>
+              <button type="button" data-pos="middle">Middle</button>
+              <button type="button" data-pos="lower" class="active">Lower</button>
+              <button type="button" data-pos="template" title="Keep the template's original position">Default</button>
+            </div>
+          </div>
+
+          <label class="field" id="mogrtPosYField">
+            <span class="field-head">Vertical height <span class="range-val" id="mogrtPosYVal">82%</span></span>
+            <input class="range" id="mogrtPosY" type="range" min="8" max="92" step="1" value="82"
+                   aria-label="Caption vertical position percent" />
+          </label>
+
+          <div class="field">
+            <span>Text case</span>
+            <div class="seg" id="mogrtCase">
+              <button type="button" data-case="as-is" class="active">As written</button>
+              <button type="button" data-case="upper">UPPER</button>
+              <button type="button" data-case="title">Title Case</button>
+            </div>
+          </div>
+
+          <div class="switches">
+            <label class="switch">
+              <input type="checkbox" id="mogrtFitScreen" checked />
+              <span class="track"><span class="knob"></span></span>
+              <span class="switch-label">Always fit captions to screen</span>
+            </label>
+            <label class="switch">
+              <input type="checkbox" id="mogrtClamp" checked />
+              <span class="track"><span class="knob"></span></span>
+              <span class="switch-label">Clamp overlaps between cues</span>
+            </label>
+            <label class="switch">
+              <input type="checkbox" id="mogrtReplace" checked />
+              <span class="track"><span class="knob"></span></span>
+              <span class="switch-label">Replace prior MOGRTs in range</span>
+            </label>
+            <label class="switch" id="mogrtAutoApplyWrap">
+              <input type="checkbox" id="mogrtAutoApply" />
+              <span class="track"><span class="knob"></span></span>
+              <span class="switch-label">Auto-apply MOGRT after Transcribe</span>
+            </label>
+          </div>
+
+          <div class="run-row mogrt-run-row">
+            <button class="btn primary wide" id="mogrtApplyBtn" type="button">
+              <span class="btn-label">Apply MOGRT to recent captions</span>
+              <span class="btn-glow"></span>
+            </button>
+            <button class="btn stop hidden" id="mogrtStopBtn" type="button" title="Stop placing MOGRTs">Stop</button>
+          </div>
+
+          <div class="progress-wrap mogrt-progress-wrap">
+            <div class="progress" id="mogrtProgressTrack"><div class="bar" id="mogrtBar"></div></div>
+            <div class="progress-label" id="mogrtProgressLabel">idle</div>
+          </div>
+
+          <p class="hint tight" id="mogrtApplyHint">Places the selected <code>.mogrt</code> onto the timeline at every cue&apos;s exact time and fills its text field automatically.</p>
+        </div>
+
+        <p class="editor-status hidden" id="mogrtStatus" role="status"></p>
+      </section>
+
     </section>
 
     <!-- ================= 03 · editor ================= -->
     <section class="tabpanel hidden" id="panelEditor" role="tabpanel" aria-labelledby="tabBtnEditor">
-      <section class="card">
-        <div class="card-head">
+      <section class="card collapsible" id="editorCard" data-card-id="editor.main">
+        <div class="card-head" role="button" tabindex="0" aria-expanded="true" title="Collapse Subtitle editor">
           <span class="num">03</span>
           <h2>Subtitle editor</h2>
           <button class="linkbtn editor-reload hidden" id="editorReload" type="button"
@@ -232,6 +391,7 @@
               <button class="menu-item" id="editorExport" type="button" role="menuitem">Export text…</button>
             </div>
           </div>
+          <span class="chev" aria-hidden="true">›</span>
         </div>
 
         <p class="hint tight" id="editorMeta">Generate captions on the Transcribe tab and every cue from that run appears here.</p>
@@ -300,7 +460,7 @@
     <section class="tabpanel hidden" id="panelSettings" role="tabpanel" aria-labelledby="tabBtnSettings">
 
       <!-- key -->
-      <section class="card api-card" id="apiCard">
+      <section class="card collapsible api-card" id="apiCard" data-card-id="settings.api">
         <div class="card-head" id="apiHead" role="button" tabindex="0"
              aria-expanded="true" aria-controls="apiBody" title="Collapse API access">
           <span class="num">01</span>
@@ -331,11 +491,12 @@
       </section>
 
       <!-- appearance -->
-      <section class="card">
-        <div class="card-head">
+      <section class="card collapsible" id="appearCard" data-card-id="settings.appearance">
+        <div class="card-head" role="button" tabindex="0" aria-expanded="true" title="Collapse Appearance">
           <span class="num">02</span>
           <h2>Appearance</h2>
           <span class="theme-name" id="themeName">mono</span>
+          <span class="chev" aria-hidden="true">›</span>
         </div>
         <div class="theme-row">
           <div class="themes" id="themes"></div>
@@ -343,6 +504,60 @@
                   title="Create a custom theme" aria-label="Create a custom theme">+</button>
         </div>
         <p class="hint tight">Themes recolour the whole panel. “+” builds a custom palette.</p>
+
+        <div class="appear-divider"></div>
+
+        <div class="field corner-field">
+          <span class="field-head">
+            <span>Corners</span>
+            <span class="corner-controls">
+              <span class="range-val" id="cornerRadiusVal">0px · Sharp</span>
+              <span class="corner-quick">
+                <button class="pill-btn active" id="cornerSharpBtn" type="button" title="Square corners (0px)">Sharp</button>
+                <button class="pill-btn" id="cornerRoundedBtn" type="button" title="Rounded corners (10px)">Rounded</button>
+              </span>
+            </span>
+          </span>
+          <input class="range" id="cornerRadius" type="range" min="0" max="16" step="1" value="0"
+                 aria-label="Corner roundness in pixels" />
+          <div class="range-scale" aria-hidden="true">
+            <span>0px</span>
+            <span>8px</span>
+            <span>16px</span>
+          </div>
+        </div>
+
+        <div class="switches appear-switches">
+          <label class="switch">
+            <input type="checkbox" id="uiMotion" checked />
+            <span class="track"><span class="knob"></span></span>
+            <span class="switch-label">Panel UI animations</span>
+          </label>
+          <label class="switch">
+            <input type="checkbox" id="liquidGlass" />
+            <span class="track"><span class="knob"></span></span>
+            <span class="switch-label">Liquid glass cards</span>
+          </label>
+        </div>
+      </section>
+
+      <!-- ambient canvas -->
+      <section class="card collapsible ambient-card" id="ambientCard" data-card-id="settings.ambient" aria-label="Ambient background animations">
+        <div class="card-head" role="button" tabindex="0" aria-expanded="true" title="Collapse Ambient canvas">
+          <span class="num">03</span>
+          <h2>Ambient canvas</h2>
+          <span class="ambient-head-right">
+            <span class="badge ok" id="ambientBadge">Butterfly</span>
+            <button class="linkbtn" id="ambientCopy" type="button" title="Copy current creature tuning JSON">Copy</button>
+            <button class="linkbtn" id="ambientReset" type="button" title="Reset current creature settings to defaults">Reset</button>
+          </span>
+          <span class="chev" aria-hidden="true">›</span>
+        </div>
+
+        <div class="ambient-grid" id="ambientCreatures" role="radiogroup" aria-label="Ambient creature"></div>
+        <p class="hint tight">Character-cell ASCII wildlife &amp; paper airplane behind cards. Click open space to startle (or feed Koi); double-click any label to reset it.</p>
+
+        <div class="ambient-tweaks" id="ambientTweaksBody"></div>
       </section>
 
       <!-- custom theme editor -->
@@ -462,10 +677,13 @@
 <script src="js/gemini.js"></script>
 <script src="js/srt.js"></script>
 <script src="js/editor.js"></script>
+<script src="js/mogrt.js"></script>
+<script src="js/animate.js"></script>
 <script src="js/roman.js"></script>
 <script src="js/translate.js"></script>
 <script src="js/proofread.js"></script>
 <script src="js/update.js"></script>
+<script src="js/ambient.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

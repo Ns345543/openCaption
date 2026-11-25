@@ -39,3 +39,16 @@ Premiere builds whose ES3 engine does not provide them.
   Version      : 2023-05-10
 
 json2.js is included unmodified apart from a short header comment.
+
+
+ascii-animals-extension / ascii-animals
+---------------------------------------
+The Midnight & Pond themes and the character-cell ASCII animal canvas engine
+in extension/js/ambient.js incorporate animation logic, physics, and creature
+renderers derived from:
+
+  - ascii-animals-extension (https://github.com/sushilbyte7/ascii-animals-extension)
+    Copyright 2026 Sushil Kumar — Licensed under the Apache License, Version 2.0
+    (https://www.apache.org/licenses/LICENSE-2.0)
+  - ascii-animals (https://github.com/DesignerStephen1/ascii-animals)
+    Copyright (c) 2026 drewdi — Licensed under the MIT License

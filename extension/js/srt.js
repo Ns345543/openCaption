@@ -98,6 +98,13 @@ var Srt = (function () {
     return out;
   }
 
+  function clampLayout(wordsPerLine, maxLines) {
+    return {
+      per: Math.max(1, Math.min(50, Math.round(Number(wordsPerLine) || 2))),
+      lines: Math.max(1, Math.min(20, Math.round(Number(maxLines) || 1)))
+    };
+  }
+
   /**
    * Lays one caption's words out over at most `maxLines` balanced lines of at
    * most `wordsPerLine` words each.
@@ -106,8 +113,9 @@ var Srt = (function () {
     var words = cleanText(text).split(' ').filter(Boolean);
     if (!words.length) return [];
 
-    var per = Math.max(1, Math.min(12, Number(wordsPerLine) || 2));
-    var lines = Math.max(1, Math.min(4, Number(maxLines) || 1));
+    var layout = clampLayout(wordsPerLine, maxLines);
+    var per = layout.per;
+    var lines = layout.lines;
     var count = Math.min(lines, Math.ceil(words.length / per));
     var sizes = evenSizes(words.length, count);
 
@@ -368,8 +376,9 @@ var Srt = (function () {
    */
   function alignCues(cues, segments, opts) {
     opts = opts || {};
-    var per = Math.max(1, Math.min(12, Number(opts.wordsPerLine) || 2));
-    var lines = Math.max(1, Math.min(4, Number(opts.maxLines) || 1));
+    var layout = clampLayout(opts.wordsPerLine, opts.maxLines);
+    var per = layout.per;
+    var lines = layout.lines;
     var maxWords = per * lines;
     var hold = (opts.holdMs === undefined) ? HOLD_SEC : Math.max(0, opts.holdMs / 1000);
     var splitGap = (opts.splitGapMs === undefined) ? SPLIT_GAP_SEC
@@ -472,8 +481,9 @@ var Srt = (function () {
    */
   function cuesFromWords(words, opts) {
     opts = opts || {};
-    var per = Math.max(1, Math.min(12, Number(opts.wordsPerLine) || 2));
-    var lines = Math.max(1, Math.min(4, Number(opts.maxLines) || 1));
+    var layout = clampLayout(opts.wordsPerLine, opts.maxLines);
+    var per = layout.per;
+    var lines = layout.lines;
     var maxWords = per * lines;
     var hold = (opts.holdMs === undefined) ? 0.08 : Math.max(0, opts.holdMs / 1000);
     var splitGap = (opts.splitGapMs === undefined) ? 0.28
@@ -551,8 +561,9 @@ var Srt = (function () {
    */
   function finalize(cues, opts) {
     opts = opts || {};
-    var per = Math.max(1, Math.min(12, Number(opts.wordsPerLine) || 2));
-    var lines = Math.max(1, Math.min(4, Number(opts.maxLines) || 1));
+    var layout = clampLayout(opts.wordsPerLine, opts.maxLines);
+    var per = layout.per;
+    var lines = layout.lines;
     var list = cueList(cues, opts.totalDuration);
 
     for (var i = 1; i < list.length; i++) {

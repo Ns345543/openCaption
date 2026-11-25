@@ -30,6 +30,7 @@ var NODE = (function () {
     api.child_process = req('child_process');
     api.crypto = req('crypto');
     api.dns = req('dns');
+    api.zlib = req('zlib');
   } catch (e) {
     return { ok: false, error: 'Node modules failed to load: ' + e.message };
   }

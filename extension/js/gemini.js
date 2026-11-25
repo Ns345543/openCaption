@@ -597,6 +597,7 @@ var Gemini = (function () {
        panel splits and groups cues itself anyway. Six words keeps the phrase
        anchors tight; larger caption layouts allow a few more. */
     var promptCap = Math.max(6, per * lines);
+    var rangeHint = promptCap <= 6 ? '2-6' : ('2-' + Math.min(promptCap, 24));
 
     return [
       'You are a professional subtitle transcriber and translator.',
@@ -605,7 +606,7 @@ var Gemini = (function () {
       'Rules:',
       '- "start" and "end" are seconds measured from the FIRST SAMPLE of this audio file. The file is exactly ' + opts.duration.toFixed(2) + ' seconds long.',
       '- Place "start" on the first audible syllable of the phrase and "end" just after its last syllable. Never pad a cue with silence at either edge — the timestamps are checked against the waveform.',
-      '- One short cue per natural phrase or breath group — usually 2-6 words, never longer than 3.0 seconds. Break a long sentence after a comma or between clauses even when the speaker does not pause. Prefer two short cues over one long one.',
+      '- One short cue per natural phrase or breath group — usually ' + rangeHint + ' words, never longer than 3.0 seconds. Break a long sentence after a comma or between clauses even when the speaker does not pause. Prefer two short cues over one long one.',
       '- Keep each cue to at most ' + promptCap + ' words. Never drop, shorten or summarise speech to satisfy a length limit: more cues are always better than missing words.',
       '- Split a long sentence after a comma or between clauses, never in the middle of a name, a number or a set phrase (for example "project deadline" or "Friday ko" should stay together).',
       '- Never put a line break or \\n inside the text; the panel lays the cue out itself.',

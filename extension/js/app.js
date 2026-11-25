@@ -17,7 +17,7 @@
   var activeRun = null;
   var cs = new CSInterface();
 
-  var VERSION = '1.12.12';
+  var VERSION = '1.13.0';
 
   var TABS = ['transcribe', 'animate', 'editor', 'settings'];
 
@@ -169,15 +169,18 @@
     return Math.min(max, Math.max(min, n));
   }
 
-  /** Mirrors the two selects into one sentence: "2 lines of 3 words". */
+  var MAX_WORDS_PER_LINE = 50;
+  var MAX_LINES_PER_CAPTION = 20;
+
+  /** Mirrors the two numeric inputs into one sentence: "2 lines of 3 words". */
   function updateCaptionShape() {
     if (!els.captionShape) return;
-    var per = wordCount(els.wordsPerLine.value, 1, 4, 2);
-    var lines = wordCount(els.maxLines.value, 1, 3, 1);
+    var per = wordCount(els.wordsPerLine.value, 1, MAX_WORDS_PER_LINE, 2);
+    var lines = wordCount(els.maxLines.value, 1, MAX_LINES_PER_CAPTION, 1);
 
     if (lines === 1) {
       els.captionShape.textContent = per + (per === 1 ? ' word' : ' words') +
-        ' in one line — one short caption at a time.';
+        ' in one line — one caption at a time.';
     } else {
       els.captionShape.textContent = lines + ' lines of ' + per +
         (per === 1 ? ' word' : ' words') + ' — up to ' + (per * lines) +
@@ -189,14 +192,17 @@
     settings.model = els.model.value;
     settings.language = els.language.value;
     settings.scope = document.querySelector('#scope button.active').dataset.scope;
-    settings.wordsPerLine = wordCount(els.wordsPerLine.value, 1, 4, 2);
-    settings.maxLines = wordCount(els.maxLines.value, 1, 3, 1);
+    settings.wordsPerLine = wordCount(els.wordsPerLine.value, 1, MAX_WORDS_PER_LINE, 2);
+    settings.maxLines = wordCount(els.maxLines.value, 1, MAX_LINES_PER_CAPTION, 1);
     settings.snapPauses = els.snapPauses.checked;
     settings.autoImport = els.autoImport.checked;
     settings.ffmpegPath = els.ffmpegPath.value.trim();
     settings.chunkSec = clamp(els.chunkSec.value, 10, 120);
     settings.concurrency = clamp(els.concurrency.value, 1, 6);
     settings.silenceDb = clamp(els.silenceDb.value, -60, -10);
+    if (els.cornerRadius) settings.cornerRadius = clamp(els.cornerRadius.value, 0, 16);
+    if (els.uiMotion) settings.uiMotion = els.uiMotion.checked;
+    if (els.liquidGlass) settings.liquidGlass = els.liquidGlass.checked;
   }
 
   function persist(opts) {
@@ -225,8 +231,8 @@
       scopeButtons[i].classList.toggle('active', scopeButtons[i].dataset.scope === settings.scope);
     }
 
-    els.wordsPerLine.value = String(wordCount(settings.wordsPerLine, 1, 4, 2));
-    els.maxLines.value = String(wordCount(settings.maxLines, 1, 3, 1));
+    els.wordsPerLine.value = String(wordCount(settings.wordsPerLine, 1, MAX_WORDS_PER_LINE, 2));
+    els.maxLines.value = String(wordCount(settings.maxLines, 1, MAX_LINES_PER_CAPTION, 1));
     updateCaptionShape();
     els.snapPauses.checked = !!settings.snapPauses;
     els.autoImport.checked = !!settings.autoImport;
@@ -237,6 +243,10 @@
 
     els.apiKey.value = settings.apiKey || '';
     setKeyBadge(!!settings.apiKey);
+
+    settings.cornerRadius = Theme.applyRadius(settings.cornerRadius);
+    settings.uiMotion = Theme.applyMotion(settings.uiMotion);
+    settings.liquidGlass = Theme.applyGlass(settings.liquidGlass);
   }
 
   function setKeyBadge(hasKey) {
@@ -820,6 +830,15 @@
         Editor.setRun(srtPath, seq.name, finalCues);
         log('Cues are ready to edit on the Editor tab.', 'dim');
       }
+      if (typeof Animate !== 'undefined') {
+        if (Animate.refreshCues) Animate.refreshCues();
+        if (Animate.autoRunAfterTranscribe) {
+          await Animate.autoRunAfterTranscribe();
+        } else if (Animate.isAutoApplyEnabled && Animate.isAutoApplyEnabled()) {
+          log('Applying selected MOGRT to recent captions…', 'dim');
+          await Animate.applyToRecent({ silent: false });
+        }
+      }
     } catch (e) {
       if (e && e.cancelled) {
         progress(0, 'stopped');
@@ -876,6 +895,7 @@
     /* Cues rendered while this tab was hidden have no usable height; fit the
        text boxes now that they are on screen. */
     if (id === 'editor' && typeof Editor !== 'undefined' && Editor.refresh) Editor.refresh();
+    if (typeof Animate !== 'undefined' && Animate.setVisible) Animate.setVisible(id === 'animate');
 
     if (!settings) return;
 
@@ -1425,20 +1445,54 @@
 
   /* ----------------------------------------------------------------- boot */
 
-  function bind() {
-    function toggleApiCard() {
-      var collapsed = els.apiCard.classList.toggle('collapsed');
-      els.apiHead.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-      els.apiHead.title = collapsed ? 'Expand API access' : 'Collapse API access';
+  function bindCollapsibleCards() {
+    var cards = document.querySelectorAll('.card.collapsible[data-card-id]');
+    if (!settings.collapsedCards || typeof settings.collapsedCards !== 'object') {
+      settings.collapsedCards = {};
     }
+    for (var i = 0; i < cards.length; i++) {
+      (function (card) {
+        var cardId = card.getAttribute('data-card-id');
+        var head = card.querySelector('.card-head');
+        var titleEl = head ? head.querySelector('h2') : null;
+        var label = titleEl ? titleEl.textContent.trim() : 'section';
+        if (!head || !cardId) return;
 
-    els.apiHead.addEventListener('click', toggleApiCard);
-    els.apiHead.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        toggleApiCard();
-      }
-    });
+        function applyState(collapsed) {
+          card.classList.toggle('collapsed', !!collapsed);
+          head.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+          head.title = (collapsed ? 'Expand ' : 'Collapse ') + label;
+        }
+
+        function toggle() {
+          var collapsed = !card.classList.contains('collapsed');
+          if (collapsed) settings.collapsedCards[cardId] = true;
+          else delete settings.collapsedCards[cardId];
+          applyState(collapsed);
+          persist();
+        }
+
+        applyState(!!settings.collapsedCards[cardId]);
+
+        head.addEventListener('click', function (e) {
+          if (e && e.target && typeof e.target.closest === 'function') {
+            if (e.target.closest('button, a, input, select, .menu-wrap, .menu')) return;
+          }
+          toggle();
+        });
+        head.addEventListener('keydown', function (e) {
+          if (e && e.target && e.target !== head) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            toggle();
+          }
+        });
+      })(cards[i]);
+    }
+  }
+
+  function bind() {
+    bindCollapsibleCards();
 
     bindTabs();
 
@@ -1452,6 +1506,40 @@
     els.customThemeDelete.addEventListener('click', deleteCustomTheme);
     bindThemeEditor();
 
+    if (els.cornerRadius) {
+      els.cornerRadius.addEventListener('input', function () {
+        Theme.applyRadius(els.cornerRadius.value);
+      });
+      els.cornerRadius.addEventListener('change', function () {
+        Theme.applyRadius(els.cornerRadius.value);
+        persist();
+      });
+    }
+    if (els.cornerSharpBtn) {
+      els.cornerSharpBtn.addEventListener('click', function () {
+        Theme.applyRadius(0);
+        persist();
+      });
+    }
+    if (els.cornerRoundedBtn) {
+      els.cornerRoundedBtn.addEventListener('click', function () {
+        Theme.applyRadius(10);
+        persist();
+      });
+    }
+    if (els.uiMotion) {
+      els.uiMotion.addEventListener('change', function () {
+        Theme.applyMotion(els.uiMotion.checked);
+        persist();
+      });
+    }
+    if (els.liquidGlass) {
+      els.liquidGlass.addEventListener('change', function () {
+        Theme.applyGlass(els.liquidGlass.checked);
+        persist();
+      });
+    }
+
     document.querySelectorAll('#scope button').forEach(function (btn) {
       btn.addEventListener('click', function () {
         document.querySelectorAll('#scope button').forEach(function (b) { b.classList.remove('active'); });
@@ -1462,11 +1550,23 @@
 
     els.model.addEventListener('change', persist);
 
-    ['language', 'wordsPerLine', 'maxLines', 'snapPauses', 'autoImport', 'chunkSec', 'silenceDb', 'concurrency']
+    ['language', 'snapPauses', 'autoImport', 'chunkSec', 'silenceDb', 'concurrency']
       .forEach(function (id) { els[id].addEventListener('change', persist); });
 
-    els.wordsPerLine.addEventListener('change', updateCaptionShape);
-    els.maxLines.addEventListener('change', updateCaptionShape);
+    [
+      { el: els.wordsPerLine, max: MAX_WORDS_PER_LINE, fallback: 2 },
+      { el: els.maxLines, max: MAX_LINES_PER_CAPTION, fallback: 1 }
+    ].forEach(function (spec) {
+      spec.el.addEventListener('input', function () {
+        if (String(spec.el.value || '').trim() === '') return;
+        updateCaptionShape();
+      });
+      spec.el.addEventListener('change', function () {
+        spec.el.value = String(wordCount(spec.el.value, 1, spec.max, spec.fallback));
+        updateCaptionShape();
+        persist();
+      });
+    });
 
     els.ffmpegPath.addEventListener('change', function () { persist(); resolveAndReport(); });
 
@@ -1546,6 +1646,7 @@
      'generate', 'cancel', 'bar', 'progressTrack', 'progressLabel', 'log', 'copyLogBtn', 'clearLogBtn', 'ffmpegPath', 'browseFfmpeg', 'chunkSec',
      'concurrency', 'silenceDb', 'openDataFolder', 'openCaptionFolder', 'version', 'hostInfo',
      'refreshModels', 'testModel', 'themes', 'themeName',
+     'cornerRadius', 'cornerRadiusVal', 'cornerSharpBtn', 'cornerRoundedBtn', 'uiMotion', 'liquidGlass',
      'customThemeBtn', 'themeEditor', 'themeEditorClose', 'customThemeName',
      'customBg', 'customBgHex', 'customPanel', 'customPanelHex',
      'customAccent', 'customAccentHex', 'customText', 'customTextHex',
@@ -1576,6 +1677,11 @@
     });
     bind();
     if (typeof Editor !== 'undefined') Editor.init();
+    if (typeof Ambient !== 'undefined') Ambient.init(settings.ambient, persist);
+    if (typeof Animate !== 'undefined') {
+      Animate.init(settings.mogrt, persist, { log: log });
+      Animate.setVisible(settings.activeTab === 'animate');
+    }
 
     log('Ready. Open a sequence, then press Generate.', 'dim');
 

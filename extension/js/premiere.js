@@ -117,6 +117,18 @@ var Premiere = (function () {
     importCaptions: function (srtPath) {
       return call('importCaptions', { path: srtPath });
     },
+    importTextStyle: function (stylePathOrOpts) {
+      var opts = (stylePathOrOpts && typeof stylePathOrOpts === 'object')
+        ? stylePathOrOpts
+        : { path: stylePathOrOpts };
+      return call('importTextStyle', opts);
+    },
+    prepareMogrtTrack: function (opts) {
+      return call('prepareMogrtTrack', opts);
+    },
+    applyMogrtCue: function (opts) {
+      return call('applyMogrtCue', opts);
+    },
     revealInExplorer: function (p) { return call('revealInExplorer', { path: p }); }
   };
 })();

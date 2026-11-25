@@ -1429,6 +1429,19 @@ var Editor = (function () {
   return {
     init: init,
     setRun: setRun,
+    getCues: function () {
+      return state.cues.map(function (c) {
+        return { start: c.start, end: c.end, text: c.text };
+      });
+    },
+    getMeta: function () {
+      return {
+        path: state.path,
+        source: state.source,
+        sequence: state.sequence,
+        count: state.cues.length
+      };
+    },
     refresh: function () {
       if (!built) return;
       badge();

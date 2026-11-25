@@ -30,6 +30,26 @@ var Config = (function () {
      at 4, so a caption is 2 words on one line unless asked otherwise. */
   var CONFIG_VERSION = 4;
 
+  var MOGRT_DEFAULTS = {
+    activeMode: '',
+    selectedPath: '',
+    selectedStylePath: '',
+    paramIndex: 0,
+    fillMode: 'split',
+    trackMode: 'auto',
+    position: 'lower',
+    positionY: 82,
+    fitToScreen: true,
+    textCase: 'as-is',
+    clampOverlaps: true,
+    replaceExisting: true,
+    autoApply: false,
+    autoStyleOnTranscribe: true,
+    activeFilter: 'all',
+    customCategories: [],
+    itemCategories: {}
+  };
+
   var DEFAULTS = {
     configVersion: CONFIG_VERSION,
     apiKey: '',
@@ -46,6 +66,15 @@ var Config = (function () {
     silenceDb: -35,
     theme: 'mono',
     customTheme: null,
+    cornerRadius: 0,
+    uiMotion: true,
+    liquidGlass: false,
+    mogrt: MOGRT_DEFAULTS,
+    ambient: {
+      creature: 'butterflies',
+      byCreature: {}
+    },
+    collapsedCards: {},
     activeTab: 'transcribe'
   };
 
@@ -98,6 +127,56 @@ var Config = (function () {
         merged[k] = (raw[k] === undefined) ? DEFAULTS[k] : raw[k];
       }
     }
+
+    var rawMogrt = (raw.mogrt && typeof raw.mogrt === 'object') ? raw.mogrt : {};
+    var mogrt = {};
+    for (var mk in MOGRT_DEFAULTS) {
+      if (Object.prototype.hasOwnProperty.call(MOGRT_DEFAULTS, mk)) {
+        var dv = MOGRT_DEFAULTS[mk];
+        var rv = rawMogrt[mk];
+        if (Array.isArray(dv)) {
+          mogrt[mk] = Array.isArray(rv) ? rv.slice() : dv.slice();
+        } else if (dv && typeof dv === 'object') {
+          mogrt[mk] = (rv && typeof rv === 'object' && !Array.isArray(rv)) ? Object.assign({}, rv) : Object.assign({}, dv);
+        } else {
+          mogrt[mk] = (rv === undefined) ? dv : rv;
+        }
+      }
+    }
+    merged.mogrt = mogrt;
+    if (mogrt.activeMode !== 'mogrt' && mogrt.activeMode !== 'style') {
+      if (mogrt.selectedStylePath) {
+        mogrt.activeMode = 'style';
+      } else if (mogrt.selectedPath) {
+        mogrt.activeMode = 'mogrt';
+      } else {
+        mogrt.activeMode = '';
+      }
+    }
+
+    var rawAmbient = (raw.ambient && typeof raw.ambient === 'object') ? raw.ambient : {};
+    var byCreature = {};
+    if (rawAmbient.byCreature && typeof rawAmbient.byCreature === 'object') {
+      for (var ck in rawAmbient.byCreature) {
+        if (Object.prototype.hasOwnProperty.call(rawAmbient.byCreature, ck) &&
+            rawAmbient.byCreature[ck] && typeof rawAmbient.byCreature[ck] === 'object') {
+          byCreature[ck] = Object.assign({}, rawAmbient.byCreature[ck]);
+        }
+      }
+    }
+    merged.ambient = {
+      creature: typeof rawAmbient.creature === 'string' && rawAmbient.creature ? rawAmbient.creature : DEFAULTS.ambient.creature,
+      byCreature: byCreature
+    };
+
+    var rawCollapsed = (raw.collapsedCards && typeof raw.collapsedCards === 'object') ? raw.collapsedCards : {};
+    var collapsedCards = {};
+    for (var cc in rawCollapsed) {
+      if (Object.prototype.hasOwnProperty.call(rawCollapsed, cc) && rawCollapsed[cc]) {
+        collapsedCards[cc] = true;
+      }
+    }
+    merged.collapsedCards = collapsedCards;
     // Keys never contain whitespace; strip anything a paste picked up so an
     // old saved value cannot fail every request.
     merged.apiKey = decodeKey(raw.apiKey || '').replace(/[\s\u00a0\u200b-\u200f\ufeff]+/g, '');
@@ -133,12 +212,16 @@ var Config = (function () {
       save(merged); // rewrite in the new shape exactly once
     }
 
-    // The two controls are selects now. Keep hand-edited or legacy values
-    // inside the options that actually exist, so the panel never shows blank.
-    merged.wordsPerLine = Math.min(4, Math.max(1,
+    // Keep hand-edited or legacy values inside sane numeric bounds.
+    merged.wordsPerLine = Math.min(50, Math.max(1,
       Math.round(Number(merged.wordsPerLine) || DEFAULTS.wordsPerLine)));
-    merged.maxLines = Math.min(3, Math.max(1,
+    merged.maxLines = Math.min(20, Math.max(1,
       Math.round(Number(merged.maxLines) || DEFAULTS.maxLines)));
+
+    var rad = Number(merged.cornerRadius);
+    merged.cornerRadius = isFinite(rad) ? Math.min(16, Math.max(0, Math.round(rad))) : 0;
+    merged.uiMotion = merged.uiMotion !== false;
+    merged.liquidGlass = !!merged.liquidGlass;
 
     merged.configVersion = CONFIG_VERSION;
 

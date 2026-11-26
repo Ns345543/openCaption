@@ -1,4 +1,4 @@
-# openCaption — install (Windows)
+﻿# openCaption — install (Windows)
 #
 # Links the extension into the per-user CEP folder and enables PlayerDebugMode so
 # Premiere will load an unsigned panel. No admin rights, no code signing needed.
@@ -36,7 +36,7 @@ foreach ($v in 9..16) {
     if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null }
     New-ItemProperty -Path $key -Name PlayerDebugMode -Value '1' -PropertyType String -Force | Out-Null
 }
-Write-Host "PlayerDebugMode enabled (CSXS.9 - CSXS.13)" -ForegroundColor Green
+Write-Host "PlayerDebugMode enabled (CSXS.9 - CSXS.16)" -ForegroundColor Green
 
 Write-Host ''
 Write-Host 'Next steps:' -ForegroundColor Cyan

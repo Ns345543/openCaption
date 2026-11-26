@@ -21,9 +21,7 @@
         <span class="brand-sub">neural subtitle engine</span>
       </span>
     </div>
-    <div class="host-wrap">
-      <div class="host" id="hostInfo">OPENCAPTION</div>
-    </div>
+    <div class="host" id="hostInfo">OPENCAPTION</div>
   </header>
 
   <nav class="tabs" role="tablist" aria-label="Sections">
@@ -460,34 +458,31 @@
     <section class="tabpanel hidden" id="panelSettings" role="tabpanel" aria-labelledby="tabBtnSettings">
 
       <!-- key -->
-      <section class="card collapsible api-card" id="apiCard" data-card-id="settings.api">
-        <div class="card-head" id="apiHead" role="button" tabindex="0"
-             aria-expanded="true" aria-controls="apiBody" title="Collapse API access">
+      <section class="card collapsible" data-card-id="settings.api">
+        <div class="card-head" role="button" tabindex="0" aria-expanded="true" title="Collapse API access">
           <span class="num">01</span>
           <h2>API access</h2>
           <span class="badge" id="keyBadge">no key</span>
           <span class="chev" aria-hidden="true">›</span>
         </div>
 
-        <div class="api-body" id="apiBody">
-          <div class="row">
-            <div class="input-wrap">
-              <input id="apiKey" type="password" placeholder="AIza…" spellcheck="false" autocomplete="off" />
-              <button id="toggleKey" class="ghost-btn" title="Show / hide">show</button>
-            </div>
+        <div class="row">
+          <div class="input-wrap">
+            <input id="apiKey" type="password" placeholder="AIza…" spellcheck="false" autocomplete="off" />
+            <button id="toggleKey" class="ghost-btn" title="Show / hide">show</button>
           </div>
-
-          <div class="row wrap">
-            <button id="saveKey" class="btn primary sm">Save key</button>
-            <button id="testKey" class="btn sm">Verify</button>
-            <button id="clearKey" class="btn sm ghost">Clear</button>
-          </div>
-
-          <p class="hint">
-            Key from <a href="https://aistudio.google.com/apikey" data-ext="link">aistudio.google.com/apikey</a>
-            · stored locally in <code>%APPDATA%\CaptionAI</code>
-          </p>
         </div>
+
+        <div class="row wrap">
+          <button id="saveKey" class="btn primary sm">Save key</button>
+          <button id="testKey" class="btn sm">Verify</button>
+          <button id="clearKey" class="btn sm ghost">Clear</button>
+        </div>
+
+        <p class="hint">
+          Key from <a href="https://aistudio.google.com/apikey" data-ext="link">aistudio.google.com/apikey</a>
+          · stored locally in <code>%APPDATA%\CaptionAI</code>
+        </p>
       </section>
 
       <!-- appearance -->
@@ -507,27 +502,12 @@
 
         <div class="appear-divider"></div>
 
-        <div class="field corner-field">
-          <span class="field-head">
-            <span>Corners</span>
-            <span class="corner-controls">
-              <span class="range-val" id="cornerRadiusVal">0px · Sharp</span>
-              <span class="corner-quick">
-                <button class="pill-btn active" id="cornerSharpBtn" type="button" title="Square corners (0px)">Sharp</button>
-                <button class="pill-btn" id="cornerRoundedBtn" type="button" title="Rounded corners (10px)">Rounded</button>
-              </span>
-            </span>
-          </span>
-          <input class="range" id="cornerRadius" type="range" min="0" max="16" step="1" value="0"
-                 aria-label="Corner roundness in pixels" />
-          <div class="range-scale" aria-hidden="true">
-            <span>0px</span>
-            <span>8px</span>
-            <span>16px</span>
-          </div>
-        </div>
-
         <div class="switches appear-switches">
+          <label class="switch">
+            <input type="checkbox" id="roundedCorners" />
+            <span class="track"><span class="knob"></span></span>
+            <span class="switch-label">Rounded corners</span>
+          </label>
           <label class="switch">
             <input type="checkbox" id="uiMotion" checked />
             <span class="track"><span class="knob"></span></span>
@@ -539,6 +519,7 @@
             <span class="switch-label">Liquid glass cards</span>
           </label>
         </div>
+        <p class="hint tight">Liquid glass adds translucent frosted-blur cards over the ambient canvas.</p>
       </section>
 
       <!-- ambient canvas -->

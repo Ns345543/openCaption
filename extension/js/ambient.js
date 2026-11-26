@@ -184,11 +184,6 @@ var Ambient = (function () {
       var power = 1 - dist / STARTLE_RADIUS;
       if (this.animal.startle) {
         this.animal.startle(c, dx / dist, dy / dist, power, this);
-      } else {
-        var impulse = power * 420 * c.depth;
-        c.vx += (dx / dist) * impulse;
-        c.vy += (dy / dist) * impulse;
-        c.startledUntil = this.time + randRange(0.6, 1.2);
       }
     }
   };
@@ -196,11 +191,16 @@ var Ambient = (function () {
   Flock.prototype.step = function (dt) {
     this.time += dt;
     this.populate(false);
+    var t = this.tuning;
+    var spanKey = this.base + '|' + t.size + '|' + t.farthest + '|' + t.farBias;
     var i;
-    for (i = 0; i < this.creatures.length; i++) {
-      var c = this.creatures[i];
-      c.depth = this.depthOf(c.roll);
-      c.span = this.base * c.depth * this.tuning.size;
+    if (this._spanKey !== spanKey) {
+      this._spanKey = spanKey;
+      for (i = 0; i < this.creatures.length; i++) {
+        var c = this.creatures[i];
+        c.depth = this.depthOf(c.roll);
+        c.span = this.base * c.depth * t.size;
+      }
     }
     if (this.animal.prepare) this.animal.prepare(this, dt);
     for (i = 0; i < this.creatures.length; i++) {
@@ -212,8 +212,7 @@ var Ambient = (function () {
     var want = this.getTarget();
     while (this.creatures.length > want) {
       var idx = Math.floor(Math.random() * this.creatures.length);
-      var removed = this.creatures.splice(idx, 1)[0];
-      if (removed) removed.gone = true;
+      this.creatures.splice(idx, 1);
     }
     while (this.creatures.length < want) {
       var c = this.spawn();
@@ -246,8 +245,7 @@ var Ambient = (function () {
       vy: 0,
       heading: 0,
       bias: 0,
-      startledUntil: 0,
-      gone: false
+      startledUntil: 0
     };
     base.depth = this.depthOf(base.roll);
     base.span = this.base * base.depth * this.tuning.size;
@@ -379,7 +377,36 @@ var Ambient = (function () {
   var RAMP_VEIN = '.:+*';
   var RAMP_EDGE_HI = ':;';
   var RAMP_EDGE_LO = ".'`,";
-  var SPARKLES = [[255, 255, 255], [228, 246, 255], [200, 244, 255]];
+  var AMBIENT_SIDES = [-1, 1];
+
+  var GLYPH_CACHE = new Array(128);
+  var GLYPH_EXTRA = Object.create(null);
+  function glyphStr(code) {
+    if (code < 128) {
+      var s = GLYPH_CACHE[code];
+      if (s === undefined) GLYPH_CACHE[code] = s = String.fromCharCode(code);
+      return s;
+    }
+    var ex = GLYPH_EXTRA[code];
+    if (ex === undefined) GLYPH_EXTRA[code] = ex = String.fromCharCode(code);
+    return ex;
+  }
+
+  var COLOR_CSS = Object.create(null);
+  var colorCssCount = 0;
+  function packedCss(c) {
+    var s = COLOR_CSS[c];
+    if (s === undefined) {
+      if (colorCssCount > 512) {
+        COLOR_CSS = Object.create(null);
+        colorCssCount = 0;
+      }
+      s = 'rgb(' + (c >>> 16) + ',' + ((c >>> 8) & 255) + ',' + (c & 255) + ')';
+      COLOR_CSS[c] = s;
+      colorCssCount++;
+    }
+    return s;
+  }
 
   var FLAG_EMPTY = 0;
   var FLAG_SOLID = 1;
@@ -398,13 +425,15 @@ var Ambient = (function () {
     ];
   }
 
-  function rgbCss(r, g, b) {
-    return 'rgb(' + clamp(Math.round(r), 0, 255) + ',' + clamp(Math.round(g), 0, 255) + ',' + clamp(Math.round(b), 0, 255) + ')';
-  }
-
   function packRgb(r, g, b) {
     return (clamp(Math.round(r), 0, 255) << 16) | (clamp(Math.round(g), 0, 255) << 8) | clamp(Math.round(b), 0, 255);
   }
+
+  var SPARKLE_PACKED = [
+    packRgb(255, 255, 255),
+    packRgb(228, 246, 255),
+    packRgb(200, 244, 255)
+  ];
 
   function angleGlyph(rad) {
     var a = rad % Math.PI;
@@ -433,14 +462,17 @@ var Ambient = (function () {
     this.theme = 'dark';
     this.a = { x: 0, y: 0 };
     this.b = { x: 0, y: 0 };
+    this.pose = { x: 0, y: 0, heading: 0, span: 0, depth: 0, id: 0 };
     this.r = renderer;
   }
   Object.defineProperty(Pen.prototype, 'cw', { get: function () { return this.r.cw; } });
-  Object.defineProperty(Pen.prototype, 'ch', { get: function () { return this.r.ch; } });
-  Object.defineProperty(Pen.prototype, 'cols', { get: function () { return this.r.cols; } });
-  Object.defineProperty(Pen.prototype, 'rows', { get: function () { return this.r.rows; } });
   Object.defineProperty(Pen.prototype, 'contrast', { get: function () { return this.r.palette.ink; } });
 
+  Pen.prototype.setPose = function (x, y, heading, span, depth, id) {
+    var p = this.pose;
+    p.x = x; p.y = y; p.heading = heading; p.span = span; p.depth = depth; p.id = id;
+    return p;
+  };
   Pen.prototype.toWorld = function (pose, u, v, out) {
     var c = Math.cos(pose.heading);
     var s = Math.sin(pose.heading);
@@ -449,7 +481,7 @@ var Ambient = (function () {
     return out;
   };
   Pen.prototype.fogFor = function (depth) { return (1 - depth) * this.r.tuning.fog; };
-  Pen.prototype.shape = function (pose, radius, fn, opts) { this.r.shape(pose, radius, fn, opts || {}); };
+  Pen.prototype.shape = function (pose, radius, fn, opts) { this.r.shape(pose, radius, fn, opts); };
   Pen.prototype.line = function (x1, y1, x2, y2, rgb, depth, tipCh, fog) {
     this.r.line(x1, y1, x2, y2, rgb, fog === undefined ? this.fogFor(depth) : fog, tipCh);
   };
@@ -468,7 +500,6 @@ var Ambient = (function () {
     if (!this.r.tuning.trail) return;
     this.r.shed(x, y, amount * this.r.tuning.trail);
   };
-  Pen.prototype.cellIndex = function (x, y) { return this.r.cellIndex(x, y); };
 
   function CellRenderer(canvas, tuning) {
     this.cw = 12;
@@ -481,13 +512,17 @@ var Ambient = (function () {
     this.width = 0;
     this.height = 0;
     this.fontFamily = '"Cascadia Mono", Consolas, ui-monospace, Menlo, monospace';
+    this.fontCss = '600 13px ' + this.fontFamily;
     this.theme = 'dark';
     this.animal = null;
     this.energy = new Float32Array(0);
     this.energyTmp = new Float32Array(0);
+    this.energyActive = false;
     this.trailStyles = [];
     this.hue = hueMatrix(0);
     this.hueOn = false;
+    this._rgb = [0, 0, 0];
+    this._cssKey = '';
     this.cellFlag = new Uint8Array(0);
     this.cellFill = new Uint32Array(0);
     this.cellColor = new Uint32Array(0);
@@ -501,36 +536,59 @@ var Ambient = (function () {
     this.syncPaletteFromCss();
   }
 
-  CellRenderer.prototype.setFontFamily = function (f) { if (f) this.fontFamily = f; };
+  CellRenderer.prototype.dispose = function () {
+    this.cols = 0;
+    this.rows = 0;
+    this.width = 0;
+    this.height = 0;
+    this.energyActive = false;
+    this.energy = new Float32Array(0);
+    this.energyTmp = new Float32Array(0);
+    this.cellFlag = new Uint8Array(0);
+    this.cellFill = new Uint32Array(0);
+    this.cellColor = new Uint32Array(0);
+    this.cellGlyph = new Uint16Array(0);
+    this.trailStyles = [];
+    if (this.canvas) {
+      this.canvas.width = 0;
+      this.canvas.height = 0;
+    }
+  };
 
-  CellRenderer.prototype.syncPaletteFromCss = function () {
+  CellRenderer.prototype.setFontFamily = function (f) {
+    if (f) {
+      this.fontFamily = f;
+      this.fontCss = '600 ' + Math.round(this.ch * 0.74) + 'px ' + this.fontFamily;
+    }
+  };
+
+  CellRenderer.prototype.syncPaletteFromCss = function (force) {
     var rootStyle = typeof getComputedStyle === 'function' ? getComputedStyle(document.documentElement) : null;
     var bodyStyle = (typeof getComputedStyle === 'function' && document.body) ? getComputedStyle(document.body) : null;
     var scheme = rootStyle && rootStyle.colorScheme === 'light' ? 'light' : 'dark';
-    this.theme = scheme;
-    this.pen.theme = scheme;
     var base = THEMES[scheme];
     var bgRgb = parseCssColor(bodyStyle && bodyStyle.backgroundColor) || parseCssColor(rootStyle && rootStyle.getPropertyValue('--bg')) || base.background;
     var gridRgba = parseCssColor(rootStyle && rootStyle.getPropertyValue('--grid')) || base.grid;
+    var gridA = gridRgba[3] !== undefined ? gridRgba[3] : base.grid[3];
+    var cssKey = scheme + '|' + bgRgb[0] + ',' + bgRgb[1] + ',' + bgRgb[2] + '|' + gridRgba[0] + ',' + gridRgba[1] + ',' + gridRgba[2] + ',' + gridA;
+    if (!force && cssKey === this._cssKey) return;
+    this._cssKey = cssKey;
+    this.theme = scheme;
+    this.pen.theme = scheme;
     this.palette = {
       background: [bgRgb[0], bgRgb[1], bgRgb[2]],
-      grid: [gridRgba[0], gridRgba[1], gridRgba[2], gridRgba[3] !== undefined ? gridRgba[3] : base.grid[3]],
+      grid: [gridRgba[0], gridRgba[1], gridRgba[2], gridA],
       trailAlpha: base.trailAlpha,
       ink: base.ink
     };
     this.restyle();
   };
 
-  CellRenderer.prototype.setTheme = function (t) {
-    this.theme = t;
-    this.pen.theme = t;
-    this.syncPaletteFromCss();
-  };
-
   CellRenderer.prototype.setAnimal = function (animal, tuning) {
     this.animal = animal;
     this.tuning = tuning;
     this.energy.fill(0);
+    this.energyActive = false;
     this.restyle();
   };
 
@@ -553,13 +611,16 @@ var Ambient = (function () {
   };
 
   CellRenderer.prototype.turn = function (r, g, b) {
-    if (!this.hueOn) return [r, g, b];
+    var out = this._rgb;
+    if (!this.hueOn) {
+      out[0] = r; out[1] = g; out[2] = b;
+      return out;
+    }
     var m = this.hue;
-    return [
-      m[0] * r + m[1] * g + m[2] * b,
-      m[3] * r + m[4] * g + m[5] * b,
-      m[6] * r + m[7] * g + m[8] * b
-    ];
+    out[0] = m[0] * r + m[1] * g + m[2] * b;
+    out[1] = m[3] * r + m[4] * g + m[5] * b;
+    out[2] = m[6] * r + m[7] * g + m[8] * b;
+    return out;
   };
 
   CellRenderer.prototype.fade = function (r, g, b, fog) {
@@ -575,14 +636,18 @@ var Ambient = (function () {
     this.dpr = dpr;
     this.cw = clamp(Math.round(Math.min(w, h) / 124 / this.tuning.detail), 4, 24);
     this.ch = Math.round(this.cw * 1.45);
+    this.fontCss = '600 ' + Math.round(this.ch * 0.74) + 'px ' + this.fontFamily;
     this.cols = Math.ceil(w / this.cw);
     this.rows = Math.ceil(h / this.ch);
-    this.canvas.width = Math.round(w * dpr);
-    this.canvas.height = Math.round(h * dpr);
+    var pxW = Math.round(w * dpr);
+    var pxH = Math.round(h * dpr);
+    if (this.canvas.width !== pxW) this.canvas.width = pxW;
+    if (this.canvas.height !== pxH) this.canvas.height = pxH;
     var total = this.cols * this.rows;
     if (this.cols !== prevCols || this.rows !== prevRows) {
       this.energy = new Float32Array(total);
       this.energyTmp = new Float32Array(total);
+      this.energyActive = false;
       this.cellFlag = new Uint8Array(total);
       this.cellFill = new Uint32Array(total);
       this.cellColor = new Uint32Array(total);
@@ -630,7 +695,7 @@ var Ambient = (function () {
       this.stamp(ev.x, ev.y, ev.radius, ev.amount);
     }
     flock.events.length = 0;
-    this.diffuse(dt);
+    if (this.energyActive) this.diffuse(dt);
     this.cellFlag.fill(FLAG_EMPTY);
 
     var animal = flock.animal;
@@ -646,8 +711,8 @@ var Ambient = (function () {
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.drawGrid();
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    this.drawTrail(flock.time);
-    ctx.font = '600 ' + Math.round(this.ch * 0.74) + 'px ' + this.fontFamily;
+    if (this.energyActive) this.drawTrail(flock.time);
+    ctx.font = this.fontCss;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     this.drawCells();
@@ -664,6 +729,7 @@ var Ambient = (function () {
     var idx = this.cellIndex(x, y);
     if (idx < 0) return;
     this.energy[idx] = Math.min(1.4, this.energy[idx] + amount * 0.55);
+    this.energyActive = true;
   };
 
   CellRenderer.prototype.stamp = function (x, y, rad, amount) {
@@ -679,6 +745,7 @@ var Ambient = (function () {
         energy[idx] = Math.min(1.6, energy[idx] + amount * (1 - dist / (rad + 1)));
       }
     }
+    this.energyActive = true;
   };
 
   CellRenderer.prototype.diffuse = function (dt) {
@@ -687,6 +754,7 @@ var Ambient = (function () {
     var src = this.energy;
     var dst = this.energyTmp;
     var decay = Math.exp(-dt * this.tuning.trailFade);
+    var alive = false;
     for (var r = 0; r < rows; r++) {
       for (var c = 0; c < cols; c++) {
         var idx = r * cols + c;
@@ -694,8 +762,14 @@ var Ambient = (function () {
         var ri = c < cols - 1 ? src[idx + 1] : src[idx];
         var u = r > 0 ? src[idx - cols] : src[idx];
         var d = r < rows - 1 ? src[idx + cols] : src[idx];
-        dst[idx] = (src[idx] * 4 + l + ri + u + d) * 0.125 * decay;
+        var nv = (src[idx] * 4 + l + ri + u + d) * 0.125 * decay;
+        dst[idx] = nv;
+        if (nv >= 0.004) alive = true;
       }
+    }
+    if (!alive) {
+      dst.fill(0);
+      this.energyActive = false;
     }
     this.energy = dst;
     this.energyTmp = src;
@@ -823,7 +897,7 @@ var Ambient = (function () {
           chStr = customGlyphs || RAMP_GRADIENT;
           color[idx] = this.fade(ir, ig, ib, fog);
           glyph[idx] = chStr.charCodeAt((cellSeed >>> 8) % chStr.length);
-          if (spk < sparkle) color[idx] = packRgb.apply(null, SPARKLES[cellSeed % SPARKLES.length]);
+          if (spk < sparkle) color[idx] = SPARKLE_PACKED[cellSeed % SPARKLE_PACKED.length];
           continue;
         }
 
@@ -831,7 +905,7 @@ var Ambient = (function () {
           fill[idx] = this.fade(ir * 0.58, ig * 0.58, ib * 0.58, fog);
           chStr = customGlyphs || '.:*';
           color[idx] = spk < sparkle
-            ? packRgb.apply(null, SPARKLES[cellSeed % SPARKLES.length])
+            ? SPARKLE_PACKED[cellSeed % SPARKLE_PACKED.length]
             : this.fade(Math.min(255, ir * 1.05 + 50), Math.min(255, ig * 1.05 + 50), Math.min(255, ib * 1.05 + 50), fog);
           glyph[idx] = chStr.charCodeAt((cellSeed >>> 8) % chStr.length);
           continue;
@@ -867,7 +941,7 @@ var Ambient = (function () {
         }
         glyph[idx] = chCode;
         var spkRate = kind === CELL_SHIMMER ? sparkle : (kind === CELL_GRADIENT ? sparkle / 3 : 0);
-        color[idx] = spk < spkRate ? packRgb.apply(null, SPARKLES[cellSeed % SPARKLES.length]) : packRgb(fgR, fgG, fgB);
+        color[idx] = spk < spkRate ? SPARKLE_PACKED[cellSeed % SPARKLE_PACKED.length] : packRgb(fgR, fgG, fgB);
       }
     }
   };
@@ -902,10 +976,11 @@ var Ambient = (function () {
     var idx = this.cellIndex(x, y);
     if (idx < 0) return;
     var frot = this.turn(fg[0], fg[1], fg[2]);
+    var fCol = this.fade(frot[0], frot[1], frot[2], fog);
     var brot = this.turn(bg[0], bg[1], bg[2]);
     this.cellFlag[idx] = FLAG_SOLID;
     this.cellFill[idx] = this.fade(brot[0], brot[1], brot[2], fog);
-    this.cellColor[idx] = this.fade(frot[0], frot[1], frot[2], fog);
+    this.cellColor[idx] = fCol;
     this.cellGlyph[idx] = ch.charCodeAt(0);
   };
 
@@ -919,6 +994,9 @@ var Ambient = (function () {
     var color = this.cellColor;
     var glyph = this.cellGlyph;
     var total = cols * this.rows;
+    var lastPacked = -1;
+    var halfCw = cw / 2;
+    var midY = ch / 2 + 1;
     for (var i = 0; i < total; i++) {
       var fl = flag[i];
       if (!fl) continue;
@@ -926,12 +1004,18 @@ var Ambient = (function () {
       var y = ((i / cols) | 0) * ch;
       if (fl === FLAG_SOLID) {
         var f = fill[i];
-        ctx.fillStyle = rgbCss(f >>> 16, (f >>> 8) & 255, f & 255);
+        if (f !== lastPacked) {
+          lastPacked = f;
+          ctx.fillStyle = packedCss(f);
+        }
         ctx.fillRect(x + 1, y + 1, cw - 1, ch - 1);
       }
       var c = color[i];
-      ctx.fillStyle = rgbCss(c >>> 16, (c >>> 8) & 255, c & 255);
-      ctx.fillText(String.fromCharCode(glyph[i]), x + cw / 2, y + ch / 2 + 1);
+      if (c !== lastPacked) {
+        lastPacked = c;
+        ctx.fillStyle = packedCss(c);
+      }
+      ctx.fillText(glyphStr(glyph[i]), x + halfCw, y + midY);
     }
   };
 
@@ -942,7 +1026,7 @@ var Ambient = (function () {
   var BF_HIND = { from: -1.45, to: 0.15, reach: 0.44, peak: 0.48, round: 0.42, scallop: 0.04 };
   var BF_BODY = [30, 30, 42];
   var bfProbe = { t: 0, r: 0 };
-  function bfWingArc(w, ang, t) {
+  function bfWingArc(w, t) {
     if (t <= 0 || t >= 1) return 0;
     var s = t < w.peak ? (t / w.peak) * 0.5 : 0.5 + ((t - w.peak) / (1 - w.peak)) * 0.5;
     var r = w.reach * Math.pow(Math.sin(Math.PI * s), w.round);
@@ -957,7 +1041,7 @@ var Ambient = (function () {
   function bfInWing(w, u, v) {
     var ang = Math.atan2(u, v);
     var t = (ang - w.from) / (w.to - w.from);
-    var maxR = bfWingArc(w, ang, t);
+    var maxR = bfWingArc(w, t);
     var r = Math.hypot(u, v);
     if (r > maxR) return false;
     bfProbe.t = t;
@@ -1443,6 +1527,10 @@ var Ambient = (function () {
   // 5. DRAGONFLY (exact ks / As from ascii-animals-extension)
   var DF_FORE = { u: 0.11, v: 0.02, angle: 0.08, length: 0.5, width: 0.062, broad: 0 };
   var DF_HIND = { u: 0.06, v: 0.02, angle: -0.05, length: 0.48, width: 0.07, broad: 0.5 };
+  var DF_FORE_COS = Math.cos(DF_FORE.angle);
+  var DF_FORE_SIN = Math.sin(DF_FORE.angle);
+  var DF_HIND_COS = Math.cos(DF_HIND.angle);
+  var DF_HIND_SIN = Math.sin(DF_HIND.angle);
   var dfProbe = { s: 0, x: 0 };
   function dfInWing(w, u, v) {
     var du = u - w.u;
@@ -1527,26 +1615,33 @@ var Ambient = (function () {
     },
     draw: function (c, pen) {
       var span = c.span;
-      var pose = { x: c.x, y: c.y, heading: c.heading, span: span, depth: c.depth, id: c.id };
+      var pose = pen.setPose(c.x, c.y, c.heading, span, c.depth, c.id);
       var ink = pen.ink;
       var f1 = 0.86 + 0.14 * Math.cos(c.phase);
       var f2 = 0.86 + 0.14 * Math.cos(c.phase + 1.7);
       var tailPad = pen.cw * 0.38;
       var glint = fract(c.phase / TAU);
       var ftick = Math.floor(pen.t * 24);
-      var sides = [-1, 1];
       for (var li = 0; li < 2; li++) {
-        var s = sides[li];
-        pen.lineBody(pose, 0.14, 0.03 * s, 0.2, 0.07 * s, [40, 60, 44]);
-        pen.lineBody(pose, 0.1, 0.03 * s, 0.12, 0.08 * s, [40, 60, 44]);
+        var s = AMBIENT_SIDES[li];
+        pen.lineBody(pose, 0.14, 0.03 * s, 0.2, 0.07 * s, DF_LEG_COL);
+        pen.lineBody(pose, 0.1, 0.03 * s, 0.12, 0.08 * s, DF_LEG_COL);
       }
-      var wings = [[DF_FORE, f1], [DF_HIND, f2]];
+      var foreMainP = angleGlyph(c.heading + Math.atan2(DF_FORE_COS, DF_FORE_SIN));
+      var foreMainN = angleGlyph(c.heading + Math.atan2(-DF_FORE_COS, DF_FORE_SIN));
+      var foreCrossP = angleGlyph(c.heading + Math.atan2(-DF_FORE_SIN, DF_FORE_COS));
+      var foreCrossN = angleGlyph(c.heading + Math.atan2(DF_FORE_SIN, DF_FORE_COS));
+      var hindMainP = angleGlyph(c.heading + Math.atan2(DF_HIND_COS, DF_HIND_SIN));
+      var hindMainN = angleGlyph(c.heading + Math.atan2(-DF_HIND_COS, DF_HIND_SIN));
+      var hindCrossP = angleGlyph(c.heading + Math.atan2(-DF_HIND_SIN, DF_HIND_COS));
+      var hindCrossN = angleGlyph(c.heading + Math.atan2(DF_HIND_SIN, DF_HIND_COS));
+
       pen.shape(pose, 0.74, function (u, v) {
         var av = Math.abs(v);
         var tu = (u - 0.12) / 0.07;
         var tv = av / 0.046;
         if (tu * tu + tv * tv <= 1) {
-          var col = fract((u + av) * 22) < 0.5 ? [96, 232, 130] : [28, 70, 44];
+          var col = fract((u + av) * 22) < 0.5 ? DF_EYE_A : DF_EYE_B;
           return setInk(ink, col[0], col[1], col[2], CELL_TRANSLUCENT, '#8');
         }
         if (u < 0.06 && u > -0.74) {
@@ -1560,12 +1655,12 @@ var Ambient = (function () {
           }
         }
         for (var wi = 0; wi < 2; wi++) {
-          var wg = wings[wi][0];
-          var wl = wings[wi][1];
+          var wg = wi === 0 ? DF_FORE : DF_HIND;
+          var wl = wi === 0 ? f1 : f2;
           if (!dfInWing(wg, u, av / wl)) continue;
-          var sign = v >= 0 ? 1 : -1;
-          var mainVein = angleGlyph(c.heading + Math.atan2(sign * Math.cos(wg.angle), Math.sin(wg.angle)));
-          var crossVein = angleGlyph(c.heading + Math.atan2(-sign * Math.sin(wg.angle), Math.cos(wg.angle)));
+          var pos = v >= 0;
+          var mainVein = wi === 0 ? (pos ? foreMainP : foreMainN) : (pos ? hindMainP : hindMainN);
+          var crossVein = wi === 0 ? (pos ? foreCrossP : foreCrossN) : (pos ? hindCrossP : hindCrossN);
           var ws = dfProbe.s;
           var wx = dfProbe.x;
           if (ws > 0.82 && ws < 0.9 && wx > 0.35) return setInk(ink, 176, 70, 40, CELL_TRANSLUCENT, '#');
@@ -1583,8 +1678,8 @@ var Ambient = (function () {
 
       if (0.068 * span >= pen.cw) {
         for (var ei = 0; ei < 2; ei++) {
-          pen.toWorld(pose, 0.2, 0.034 * sides[ei], dfEyePt);
-          pen.spot(dfEyePt.x, dfEyePt.y, '\u25cf', [10, 10, 12], [240, 240, 232], c.depth);
+          pen.toWorld(pose, 0.2, 0.034 * AMBIENT_SIDES[ei], dfEyePt);
+          pen.spot(dfEyePt.x, dfEyePt.y, '\u25cf', DF_EYE_FG, DF_EYE_BG, c.depth);
         }
       }
       if (c.mode === 'dart') pen.shed(c.x, c.y, 0.06 * c.depth);
@@ -1592,6 +1687,11 @@ var Ambient = (function () {
   };
 
   // 6. FROG (exact _s / qs from ascii-animals-extension)
+  var DF_LEG_COL = [40, 60, 44];
+  var DF_EYE_A = [96, 232, 130];
+  var DF_EYE_B = [28, 70, 44];
+  var DF_EYE_FG = [10, 10, 12];
+  var DF_EYE_BG = [240, 240, 232];
   var FR_BACK_FOLD = [[-0.16, 0.11], [0, 0.22], [-0.19, 0.25], [-0.04, 0.31]];
   var FR_BACK_EXT  = [[-0.17, 0.09], [-0.38, 0.15], [-0.56, 0.13], [-0.68, 0.15]];
   var FR_BACK_W = [0.056, 0.04, 0.026];
@@ -1600,12 +1700,28 @@ var Ambient = (function () {
   var FR_FRONT_REACH = [[0.08, 0.11], [0.16, 0.19], [0.27, 0.19]];
   var FR_FRONT_W = [0.028, 0.022];
   var FR_JUMP_SCALES = [1, 0.8, 1.2, 0.65, 1.35];
+  var FR_TOE_COL = [120, 190, 90];
+  var FR_EYE_FG_BLINK = [20, 30, 16];
+  var FR_EYE_BG_BLINK = [104, 184, 76];
+  var FR_EYE_FG = [16, 16, 12];
+  var FR_EYE_BG = [240, 240, 228];
+  var frBackBuf = [[0, 0], [0, 0], [0, 0], [0, 0]];
+  var frFrontBuf = [[0, 0], [0, 0], [0, 0]];
   var frProbe = { t: 0 };
   var frPt = { x: 0, y: 0 };
-  function frLerpPose(a, b, k) {
-    var out = [];
-    for (var i = 0; i < a.length; i++) out.push([lerp(a[i][0], b[i][0], k), lerp(a[i][1], b[i][1], k)]);
+  function frLerpPose(a, b, k, out) {
+    for (var i = 0; i < a.length; i++) {
+      out[i][0] = lerp(a[i][0], b[i][0], k);
+      out[i][1] = lerp(a[i][1], b[i][1], k);
+    }
     return out;
+  }
+  function frDrawToes(pen, pose, a, b, count, len, fan, side) {
+    var dir = Math.atan2(b[1] - a[1], b[0] - a[0]);
+    for (var k = 0; k < count; k++) {
+      var th = dir + (k / (count - 1) - 0.5) * fan;
+      pen.lineBody(pose, b[0], b[1] * side, b[0] + Math.cos(th) * len, (b[1] + Math.sin(th) * len) * side, FR_TOE_COL);
+    }
   }
   function frBodyW(u, puff) {
     var rear = 0.155 * Math.sqrt(Math.max(0, 1 - ((u + 0.1) / 0.18) * ((u + 0.1) / 0.18)));
@@ -1718,26 +1834,18 @@ var Ambient = (function () {
       var lp = c.leaping ? c.s : 0;
       var arc = 4 * lp * (1 - lp) * tu.height;
       var span = c.span * (1 + 0.35 * arc);
-      var pose = { x: c.x, y: c.y, heading: c.heading, span: span, depth: c.depth, id: c.id };
+      var pose = pen.setPose(c.x, c.y, c.heading, span, c.depth, c.id);
       var ink = pen.ink;
       var legExt = c.leaping ? smoothstep(0, 0.16, lp) * (1 - smoothstep(0.72, 1, lp)) : 0;
-      var backLeg = frLerpPose(FR_BACK_FOLD, FR_BACK_EXT, legExt);
+      var backLeg = frLerpPose(FR_BACK_FOLD, FR_BACK_EXT, legExt, frBackBuf);
       var frontLeg = c.leaping
-        ? (lp < 0.6 ? frLerpPose(FR_FRONT_REST, FR_FRONT_TUCK, smoothstep(0, 0.2, lp)) : frLerpPose(FR_FRONT_TUCK, FR_FRONT_REACH, smoothstep(0.6, 0.95, lp)))
+        ? (lp < 0.6 ? frLerpPose(FR_FRONT_REST, FR_FRONT_TUCK, smoothstep(0, 0.2, lp), frFrontBuf) : frLerpPose(FR_FRONT_TUCK, FR_FRONT_REACH, smoothstep(0.6, 0.95, lp), frFrontBuf))
         : FR_FRONT_REST;
       var puff = c.leaping ? 1 : 1 + 0.045 * Math.sin(pen.t * 6 + c.id);
       var blink = !c.leaping && fract(pen.t * 0.21 + c.id * 0.37) < 0.035;
-      var sides = [-1, 1];
-      function drawToes(a, b, count, len, fan, side) {
-        var dir = Math.atan2(b[1] - a[1], b[0] - a[0]);
-        for (var k = 0; k < count; k++) {
-          var th = dir + (k / (count - 1) - 0.5) * fan;
-          pen.lineBody(pose, b[0], b[1] * side, b[0] + Math.cos(th) * len, (b[1] + Math.sin(th) * len) * side, [120, 190, 90]);
-        }
-      }
       for (var si = 0; si < 2; si++) {
-        drawToes(backLeg[2], backLeg[3], 4, 0.075, 1.2, sides[si]);
-        drawToes(frontLeg[1], frontLeg[2], 3, 0.045, 1.1, sides[si]);
+        frDrawToes(pen, pose, backLeg[2], backLeg[3], 4, 0.075, 1.2, AMBIENT_SIDES[si]);
+        frDrawToes(pen, pose, frontLeg[1], frontLeg[2], 3, 0.045, 1.1, AMBIENT_SIDES[si]);
       }
       pen.shape(pose, 0.9, function (u, v) {
         var av = Math.abs(v);
@@ -1764,9 +1872,9 @@ var Ambient = (function () {
         return false;
       }, { light: 1 + 0.15 * arc });
       for (var ei = 0; ei < 2; ei++) {
-        pen.toWorld(pose, 0.18, 0.1 * sides[ei], frPt);
-        if (blink) pen.spot(frPt.x, frPt.y, '-', [20, 30, 16], [104, 184, 76], c.depth);
-        else pen.spot(frPt.x, frPt.y, '\u25cf', [16, 16, 12], [240, 240, 228], c.depth);
+        pen.toWorld(pose, 0.18, 0.1 * AMBIENT_SIDES[ei], frPt);
+        if (blink) pen.spot(frPt.x, frPt.y, '-', FR_EYE_FG_BLINK, FR_EYE_BG_BLINK, c.depth);
+        else pen.spot(frPt.x, frPt.y, '\u25cf', FR_EYE_FG, FR_EYE_BG, c.depth);
       }
     }
   };
@@ -1774,7 +1882,9 @@ var Ambient = (function () {
   // 7. JELLYFISH (exact ni / ii / ai from ascii-animals-extension)
   var JF_PT1 = { x: 0, y: 0 };
   var JF_PT2 = { x: 0, y: 0 };
-  function jfLerpColor(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; }
+  var JF_TENT_COL = [232, 100, 204];
+  var JF_ARM_COL = [204, 56, 172];
+  var JF_RUFFLE_COL = [255, 214, 240];
   function jfPulseGlow(c) {
     var p = fract(c.phase / TAU);
     return p < 0.16 ? smoothstep(0, 0.16, p) : Math.exp(-(p - 0.16) * 4.5);
@@ -1784,7 +1894,7 @@ var Ambient = (function () {
     var span = c.span;
     var sq = c.squeeze;
     var t = pen.t;
-    var pose = { x: c.x, y: c.y, heading: c.heading, span: span, depth: c.depth, id: c.id };
+    var pose = pen.setPose(c.x, c.y, c.heading, span, c.depth, c.id);
     var tentLen = tu.tentacles;
     var baseFog = pen.fogFor(c.depth);
     var bellLen = 0.32 * (1 + 0.14 * sq);
@@ -1807,14 +1917,13 @@ var Ambient = (function () {
         var nv = off * (1 - 0.3 * f) + 0.04 * Math.sin(c.phase - f * 3.5 + m * 1.3) * f + turnBend * f * f * 0.4;
         pen.toWorld(pose, pu, pv, JF_PT1);
         pen.toWorld(pose, nu, nv, JF_PT2);
-        pen.line(JF_PT1.x, JF_PT1.y, JF_PT2.x, JF_PT2.y, [232, 100, 204], c.depth, undefined, Math.min(0.95, baseFog + 0.45 + 0.35 * f));
+        pen.line(JF_PT1.x, JF_PT1.y, JF_PT2.x, JF_PT2.y, JF_TENT_COL, c.depth, undefined, Math.min(0.95, baseFog + 0.45 + 0.35 * f));
         pu = nu; pv = nv;
       }
     }
 
     // 4 frilly oral arms
     var ruffleChars = '{}~\u00a7';
-    var sides = [-1, 1];
     for (m = 0; m < 4; m++) {
       var offO = (m / 3 - 0.5) * 0.11;
       var stepsO = 26;
@@ -1826,10 +1935,10 @@ var Ambient = (function () {
         var frill = 0.055 * (1 - 0.5 * frac) * Math.cos(frac * 9 + m * 1.3 + t * 0.6);
         var armFog = Math.min(0.95, baseFog + 0.3 * frac);
         pen.toWorld(pose, u, v, JF_PT1);
-        pen.dot(JF_PT1.x, JF_PT1.y, step % 3 ? ':' : '|', [204, 56, 172], c.depth, Math.min(0.95, armFog + 0.15));
+        pen.dot(JF_PT1.x, JF_PT1.y, step % 3 ? ':' : '|', JF_ARM_COL, c.depth, Math.min(0.95, armFog + 0.15));
         for (var si = 0; si < 2; si++) {
-          pen.toWorld(pose, u, v + frill * sides[si], JF_PT1);
-          pen.dot(JF_PT1.x, JF_PT1.y, ruffleChars[(step + m + (sides[si] > 0 ? 1 : 0)) % 4], [255, 214, 240], c.depth, armFog);
+          pen.toWorld(pose, u, v + frill * AMBIENT_SIDES[si], JF_PT1);
+          pen.dot(JF_PT1.x, JF_PT1.y, ruffleChars[(step + m + (AMBIENT_SIDES[si] > 0 ? 1 : 0)) % 4], JF_RUFFLE_COL, c.depth, armFog);
         }
       }
       pen.toWorld(pose, bellRoot - lenO, offO, JF_PT1);
@@ -1864,8 +1973,8 @@ var Ambient = (function () {
       }
       if (dist > 0.35 && fract((ang / Math.PI) * 6) < 0.1) return setInk(ink, 255, 200, 240, CELL_TRANSLUCENT, '|');
       var br = 0.75 + 0.25 * Math.max(clamp(nu, 0, 1), r2);
-      var col = jfLerpColor([232, 56, 182], [255, 168, 230], clamp(nu, 0, 1) * 0.8);
-      return setInk(ink, col[0] * br, col[1] * br, col[2] * br, CELL_TRANSLUCENT, ' .');
+      var lt = clamp(nu, 0, 1) * 0.8;
+      return setInk(ink, (232 + 23 * lt) * br, (56 + 112 * lt) * br, (182 + 48 * lt) * br, CELL_TRANSLUCENT, ' .');
     }, { light: (0.92 + 0.18 * sq) * (1 + 0.6 * glow) });
   }
   function drawPlankton(flock, pen) {
@@ -1965,6 +2074,14 @@ var Ambient = (function () {
     koiFoodProx = best ? 1 - bestDist / range : 0;
     return best;
   }
+  var KOI_WHITE_LIGHT = [222, 217, 206];
+  var KOI_WHITE_DARK = [244, 240, 230];
+  var KOI_FIN_LIGHT = [206, 196, 182];
+  var KOI_FIN_DARK = [236, 226, 214];
+  var KOI_EYE_FG = [255, 252, 246];
+  var KOI_EYE_BG = [14, 12, 16];
+  var KOI_SWAY = new Float32Array(28);
+  var KOI_ARC = new Float32Array(14);
   function drawKoi(c, pen, flock) {
     var tu = flock.tuning;
     var span = c.span;
@@ -1972,10 +2089,10 @@ var Ambient = (function () {
     var ink = pen.ink;
     var kind = KOI_VARIETIES[c.variety];
     var patSeed = c.id * 1.37;
-    var whiteBase = pen.theme === 'light' ? [222, 217, 206] : [244, 240, 230];
-    var finCol = pen.theme === 'light' ? [206, 196, 182] : [236, 226, 214];
-    var swayNodes = new Float32Array(KOI_NODES * 2);
-    var arcLen = new Float32Array(KOI_NODES);
+    var whiteBase = pen.theme === 'light' ? KOI_WHITE_LIGHT : KOI_WHITE_DARK;
+    var finCol = pen.theme === 'light' ? KOI_FIN_LIGHT : KOI_FIN_DARK;
+    var swayNodes = KOI_SWAY;
+    var arcLen = KOI_ARC;
     for (var i = 0; i < KOI_NODES; i++) {
       var s = i / (KOI_NODES - 1);
       var iPrev = Math.max(0, i - 1);
@@ -1991,7 +2108,7 @@ var Ambient = (function () {
     }
     var totalLen = arcLen[KOI_NODES - 1] || 1;
     var mid = (KOI_NODES / 2) | 0;
-    var pose = { x: swayNodes[mid * 2], y: swayNodes[mid * 2 + 1], heading: c.heading, span: span, depth: c.depth, id: c.id };
+    var pose = pen.setPose(swayNodes[mid * 2], swayNodes[mid * 2 + 1], c.heading, span, c.depth, c.id);
     var finBeat = 0.8 + 0.2 * Math.sin(c.phase * 0.7);
 
     pen.shape(pose, 0.72, function (u, v, wx, wy) {
@@ -2062,9 +2179,8 @@ var Ambient = (function () {
       var uy = (swayNodes[seg * 2 + 3] - swayNodes[seg * 2 + 1]) / segSpan;
       var ex = swayNodes[seg * 2] + ux * frac * segSpan;
       var ey = swayNodes[seg * 2 + 1] + uy * frac * segSpan;
-      var sides = [-1, 1];
       for (var ei = 0; ei < 2; ei++) {
-        pen.spot(ex - uy * headHalf * sides[ei], ey + ux * headHalf * sides[ei], '\u25cf', [255, 252, 246], [14, 12, 16], c.depth);
+        pen.spot(ex - uy * headHalf * AMBIENT_SIDES[ei], ey + ux * headHalf * AMBIENT_SIDES[ei], '\u25cf', KOI_EYE_FG, KOI_EYE_BG, c.depth);
       }
     }
     pen.shed(swayNodes[(KOI_NODES - 2) * 2], swayNodes[(KOI_NODES - 2) * 2 + 1], 0.02 * c.depth);
@@ -2461,14 +2577,18 @@ var Ambient = (function () {
   }
 
   function resizeStage() {
-    if (!canvas || !renderer || !flock) return;
+    if (!canvas || !renderer || !flock || !cfg || cfg.creature === 'off') return;
     var rect = canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : null;
-    var w = rect && rect.width >= 1 ? rect.width : (window.innerWidth || 420);
-    var h = rect && rect.height >= 1 ? rect.height : (window.innerHeight || 680);
-    if (w < 1 || h < 1) return;
+    if (rect && (rect.width < 1 || rect.height < 1)) {
+      stopLoop();
+      return;
+    }
+    var w = rect ? rect.width : (window.innerWidth || 420);
+    var h = rect ? rect.height : (window.innerHeight || 680);
     var dpr = Math.min(window.devicePixelRatio || 1, 2);
     renderer.resize(w, h, dpr);
     flock.resize(w, h);
+    if (!rafId && !document.hidden) startLoop();
   }
 
   function stepFrame(now) {
@@ -2489,12 +2609,13 @@ var Ambient = (function () {
       sub++;
     }
     if (sub === MAX_SUBSTEPS) accTime = 0;
-    if (sub === 0) flock.step(STEP);
     renderer.render(flock, dt);
   }
 
   function startLoop() {
     if (rafId || !flock || !renderer || cfg.creature === 'off' || document.hidden) return;
+    var rect = canvas && canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : null;
+    if (rect && (rect.width < 1 || rect.height < 1)) return;
     lastTime = (typeof performance !== 'undefined' && performance.now) ? performance.now() : 0;
     lastRender = 0;
     accTime = 0;
@@ -2506,7 +2627,7 @@ var Ambient = (function () {
       cancelAnimationFrame(rafId);
       rafId = 0;
     }
-    if (renderer && renderer.ctx && canvas) {
+    if (renderer && renderer.ctx && canvas && canvas.width && canvas.height) {
       renderer.ctx.setTransform(1, 0, 0, 1, 0, 0);
       renderer.ctx.clearRect(0, 0, canvas.width, canvas.height);
     }
@@ -2521,6 +2642,13 @@ var Ambient = (function () {
       activeAnimal = null;
       activeTuning = null;
       flock = null;
+      if (renderer) {
+        renderer.dispose();
+        renderer = null;
+      } else if (canvas) {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
       rebuildTweaksUi();
       syncUi();
       return;
@@ -2541,7 +2669,7 @@ var Ambient = (function () {
     }
     flock = new Flock(activeAnimal, activeTuning);
     renderer.setAnimal(activeAnimal, activeTuning);
-    renderer.syncPaletteFromCss();
+    renderer.syncPaletteFromCss(true);
     resizeStage();
     rebuildTweaksUi();
     syncUi();
@@ -2634,16 +2762,18 @@ var Ambient = (function () {
     if (canvas && typeof ResizeObserver === 'function') {
       resizeObs = new ResizeObserver(resizeStage);
       resizeObs.observe(canvas);
+    } else {
+      window.addEventListener('resize', resizeStage);
     }
-    window.addEventListener('resize', resizeStage);
     window.addEventListener('pointerdown', onPointerDown, { passive: true });
     document.addEventListener('visibilitychange', function () {
-      if (!document.hidden && cfg.creature !== 'off') startLoop();
+      if (document.hidden) stopLoop();
+      else if (cfg.creature !== 'off') startLoop();
     });
 
     if (typeof MutationObserver === 'function' && document.documentElement) {
       themeObs = new MutationObserver(syncTheme);
-      themeObs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'style', 'data-glass'] });
+      themeObs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-glass'] });
     }
   }
 
@@ -2669,9 +2799,7 @@ var Ambient = (function () {
   }
 
   return {
-    CREATURES: CREATURES,
     init: init,
-    syncUi: syncUi,
     syncTheme: syncTheme
   };
 })();

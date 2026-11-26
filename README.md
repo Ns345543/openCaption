@@ -110,7 +110,7 @@ Review every cue with live timecode editing, AI spell checking, bulk filler-word
 
 ### 04 · Themes, Liquid Glass, Custom Palette & Ambient ASCII Canvas
 
-Customize every inch of the panel: **8 built-in palettes** (including dark **Midnight** and warm ivory **Pond**), custom 4-color palette editor, **Sharp → Rounded (`0–16px`) corners**, **Liquid glass cards** frosted-glass backdrop, collapsible sections across all tabs, responsive compact-width layout, and interactive character-cell **ASCII wildlife & paper airplane** animations behind your cards.
+Customize every inch of the panel: **8 built-in palettes** (including dark **Midnight** and warm ivory **Pond**), custom 4-color palette editor, **Rounded corners** switch, **Liquid glass cards** frosted-blur translucency, collapsible sections across all tabs, responsive compact-width layout, and interactive character-cell **ASCII wildlife & paper airplane** animations behind your cards.
 
 <table align="center">
   <tr>
@@ -140,7 +140,7 @@ The panel is organized into four clean tabs (and remembers the last tab and coll
 | **01 · Transcribe** | Gemini model selector (`test` & `refresh`), 15+ caption/translation languages + **Hinglish (Roman)**, Caption range (`Auto` / `Sequence` / `Work area` / `Selection`), Words / line & Lines / caption, **Word-level sync**, **Build caption track**, **Generate / Stop (`Esc`)**, progress bar, and copyable live log. |
 | **02 · Animate** | Unified **`.mogrt` & `.prtextstyle` library**, live typographic/video/motion previews, search + smart/custom category filter chips, multi-field MOGRT mapping (`split` / `pair` / `single`), video track selector (`Auto empty` or `V1`–`V6`), screen position presets (`Upper` / `Middle` / `Lower` / `Default`) + vertical height slider (`8–92%`), text case (`As written` / `UPPER` / `Title Case`), auto-fit & overlap clamping, and **Auto-apply after Transcribe**. |
 | **03 · Editor** | Cue-by-cue editor for the latest run or any opened `.srt`. Includes **Check spelling** (`Use this` / `keep mine` / `Fix all`), persisted **Remove words…** & **Replace words…**, **Import SRT…**, **Save SRT**, **Export SRT…**, **Export text…** (`.txt`), and **Import edits** back onto the active sequence. |
-| **04 · Settings** | Gemini API access, **Appearance** (8 built-in palettes + custom theme builder, Corner roundness `0–16px`, Panel UI animations, **Liquid glass cards**), **Ambient canvas** (`Off`, `Butterfly`, `Airplane`, `Dragonfly`, `Crane`, `Koi`, `Jellyfish`, `Crab`, `Frog` + tuning controls & JSON Copy/Reset), **Advanced** (`ffmpeg` path, chunk length, parallel requests, speech dB, Data/Captions folders), and in-panel updater. |
+| **04 · Settings** | Gemini API access, **Appearance** (8 built-in palettes + custom theme builder, **Rounded corners** on/off, **Panel UI animations**, **Liquid glass cards** frosted blur), **Ambient canvas** (`Off`, `Butterfly`, `Airplane`, `Dragonfly`, `Crane`, `Koi`, `Jellyfish`, `Crab`, `Frog` + tuning controls & JSON Copy/Reset), **Advanced** (`ffmpeg` path, chunk length, parallel requests, speech dB, Data/Captions folders), and in-panel updater. |
 
 | Built-in Theme | Look |
 |---|---|
@@ -242,7 +242,7 @@ Every generated run automatically loads into **03 · Editor** (or click **⋮ �
 ### 4. Customize Look & Ambient ASCII Canvas (`04 · Settings`)
 
 - Pick any of the **8 built-in themes** or click **`+`** to build your own 4-color palette with a live preview.
-- Tune **Corners (`0px Sharp` ↔ `16px Rounded`)**, toggle **Panel UI animations**, or switch on **Liquid glass cards** for frosted translucency over animated backdrops.
+- Toggle **Rounded corners** (`Sharp` / `Rounded`), **Panel UI animations**, or switch on **Liquid glass cards** for frosted-blur translucency over animated backdrops.
 - In **03 · Ambient canvas**, choose between **`Butterfly`**, **`Airplane`**, **`Dragonfly`**, **`Crane`**, **`Koi`**, **`Jellyfish`**, **`Crab`**, **`Frog`**, or **`Off`**:
   - Real-time character-cell ASCII rendering with edge anti-aliasing, iridescence shimmer, sparkle, and diffusing energy trails.
   - Click open background space to **startle creatures** (or **drop food pellets for Koi**!).
@@ -321,7 +321,7 @@ extension/
 installer/                 Windows end-user install.bat, install.ps1 & uninstall.bat
 tests/updater.test.js      Automated updater download/retry/checksum/cancel test suite
 tools/                     premiere-diagnose.jsx timeline diagnostic helper
-docs/screenshots/          Updated v1.13.0 plugin screenshots (01..10)
+docs/screenshots/          Updated v1.13.1 plugin screenshots (01..10)
 docs/branding/             Vector & raster icons + social preview banner
 build.ps1                  Signed .zxp + Windows installer .zip builder
 install.ps1                Dev junction + CSXS PlayerDebugMode helper
@@ -344,7 +344,7 @@ node --check extension/js/*.js
 node .\tests\updater.test.js
 
 # Build signed .zxp + openCaption.zip + SHA256SUMS.txt into dist\
-powershell -ExecutionPolicy Bypass -File .\build.ps1 -Version 1.13.0
+powershell -ExecutionPolicy Bypass -File .\build.ps1 -Version 1.13.1
 ```
 
 - Edits to `index.html`, `css/`, and `js/` take effect by closing and reopening the panel (`localhost:7777` exposes CEP DevTools); edits to `jsx/host.jsx` reload automatically or on Premiere restart and must stay ES3-compatible.

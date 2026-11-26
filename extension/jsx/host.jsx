@@ -206,27 +206,128 @@ var CaptionAI = (function () {
     }
   }
 
-  function findItemByPath(bin, wanted) {
+  function findItemByPath(bin, wanted, normTarget) {
     var children;
     try { children = bin.children; } catch (e) { return null; }
     if (!children) return null;
 
-    var target = null;
-    try { target = new File(wanted).fsName; } catch (e1) { target = wanted; }
-    if (target) target = String(target).toLowerCase().replace(/\\/g, '/');
+    var target = normTarget;
+    if (!target) {
+      try { target = new File(wanted).fsName; } catch (e1) { target = wanted; }
+      target = target ? String(target).toLowerCase().replace(/\\/g, '/') : '';
+    }
+    if (!target) return null;
 
     for (var i = 0; i < children.numItems; i++) {
       var item = children[i];
+      if (isBinItem(item)) {
+        var found = findItemByPath(item, wanted, target);
+        if (found) return found;
+        continue;
+      }
       var mediaPath = '';
       try { mediaPath = item.getMediaPath() || ''; } catch (e2) { mediaPath = ''; }
-      if (mediaPath) {
-        var normalised = String(mediaPath).toLowerCase().replace(/\\/g, '/');
-        if (normalised === target) return item;
+      if (mediaPath && String(mediaPath).toLowerCase().replace(/\\/g, '/') === target) {
+        return item;
       }
-      var found = findItemByPath(item, wanted);
-      if (found) return found;
     }
     return null;
+  }
+
+  function seqBaseSec(seq) {
+    try {
+      var zp = Number(seq.zeroPoint);
+      if (isFinite(zp) && zp > 0) return zp / TICKS_PER_SECOND;
+    } catch (e0) {}
+    return 0;
+  }
+
+  function secOf(t) {
+    if (t === null || t === undefined) return null;
+    try {
+      if (typeof t.seconds === 'number' && isFinite(t.seconds)) return t.seconds;
+      if (t.ticks !== undefined) {
+        var n = Number(t.ticks);
+        if (isFinite(n)) return n / TICKS_PER_SECOND;
+      }
+    } catch (e0) {}
+    return null;
+  }
+
+  function ticksStr(seconds) {
+    return String(Math.round(seconds * TICKS_PER_SECOND));
+  }
+
+  function setClipTime(clip, prop, seconds) {
+    var tStr = ticksStr(seconds);
+    var actual;
+    try {
+      var tm = new Time();
+      tm.seconds = seconds;
+      clip[prop] = tm;
+      actual = secOf(clip[prop]);
+      if (actual !== null && Math.abs(actual - seconds) <= 0.12) return true;
+    } catch (e0) {}
+    try {
+      clip[prop].seconds = seconds;
+      actual = secOf(clip[prop]);
+      if (actual !== null && Math.abs(actual - seconds) <= 0.12) return true;
+    } catch (e1) {}
+    try {
+      clip[prop].ticks = tStr;
+      actual = secOf(clip[prop]);
+      if (actual !== null && Math.abs(actual - seconds) <= 0.12) return true;
+    } catch (e2) {}
+    try {
+      clip[prop] = tStr;
+      actual = secOf(clip[prop]);
+      if (actual !== null && Math.abs(actual - seconds) <= 0.12) return true;
+    } catch (e3) {}
+    try {
+      clip[prop] = seconds;
+      actual = secOf(clip[prop]);
+      if (actual !== null && Math.abs(actual - seconds) <= 0.12) return true;
+    } catch (e4) {}
+    return false;
+  }
+
+  function hostSleep(ms) {
+    if (!ms || ms <= 0) return;
+    try {
+      if (typeof $ !== 'undefined' && typeof $.sleep === 'function') $.sleep(ms);
+    } catch (eSlp) {}
+  }
+
+  function parseJsonEntry(prop) {
+    var rawVal = null;
+    try { rawVal = prop.getValue(); } catch (eVal) { rawVal = null; }
+    if (typeof rawVal === 'string' && rawVal.charAt(0) === '{') {
+      try {
+        var parsed = JSON.parse(rawVal);
+        if (parsed && typeof parsed === 'object' && ('textEditValue' in parsed)) {
+          return { prop: prop, json: parsed };
+        }
+      } catch (eJson) {}
+    }
+    return { prop: prop, json: null, raw: rawVal };
+  }
+
+  function writePropValue(entry, valStr, updateUi) {
+    var s = String(valStr === undefined || valStr === null ? '' : valStr);
+    if (entry.json) {
+      // AE GPU effects (Light Sweep, Gradient) can fault on 0-length text bounds or mismatched run arrays.
+      var safeText = s.length ? s : ' ';
+      entry.json.textEditValue = safeText;
+      if (entry.json.fontTextRunLength && typeof entry.json.fontTextRunLength.length === 'number') {
+        entry.json.fontTextRunLength = [safeText.length];
+      }
+      if (entry.json.fontEditValue && typeof entry.json.fontEditValue.length === 'number' && entry.json.fontEditValue.length > 1) {
+        entry.json.fontEditValue = [entry.json.fontEditValue[0]];
+      }
+      entry.prop.setValue(JSON.stringify(entry.json), !!updateUi);
+    } else {
+      entry.prop.setValue(s, !!updateUi);
+    }
   }
 
   return {
@@ -263,110 +364,31 @@ var CaptionAI = (function () {
         var seq = app.project.activeSequence;
         if (!seq) return fail('No active sequence. Open a sequence in the Timeline first.');
 
-        var scope = opts.scope || 'sequence';
-
-        /* --- timeline origin ---------------------------------------------
-           Sequences can start at e.g. 01:00:00:00. Clip times are absolute,
-           so everything is normalised against the sequence zero point and the
-           SRT is written in sequence-relative seconds. */
-        var base = 0;
-        try {
-          var zp = Number(seq.zeroPoint);
-          if (isFinite(zp) && zp > 0) base = zp / TICKS_PER_SECOND;
-        } catch (e0) { base = 0; }
-
-        /* --- collect every usable audio clip ------------------------------ */
-        var warnings = [];
-        var all = [];
-        var maxClipEnd = 0;
+        /* --- timeline origin & length -------------------------------------
+           Sequence.end is a STRING of ticks, not a Time object. */
+        var base = seqBaseSec(seq);
         var tracks = seq.audioTracks;
-
-        for (var t = 0; t < tracks.numTracks; t++) {
-          var track = tracks[t];
-
-          var muted = false;
-          try { muted = !!track.isMuted(); } catch (e1) {
-            try { muted = !!track.mute; } catch (e2) { muted = false; }
-          }
-          if (muted) continue;
-
-          var clipCount = track.clips.numItems;
-          for (var c = 0; c < clipCount; c++) {
-            var clip = track.clips[c];
-
-            var start, end;
-            try {
-              start = Number(clip.start.seconds) - base;
-              end = Number(clip.end.seconds) - base;
-            } catch (e3) { continue; }
-            if (!isFinite(start) || !isFinite(end) || end <= start) continue;
-            if (end > maxClipEnd) maxClipEnd = end;
-
-            var disabled = false;
-            try { disabled = !!clip.disabled; } catch (e4) { disabled = false; }
-            if (disabled) continue;
-
-            var mediaPath = '';
-            try { mediaPath = clip.projectItem.getMediaPath() || ''; } catch (e5) { mediaPath = ''; }
-
-            if (!mediaPath) {
-              all.push({
-                track: t,
-                name: clipName(clip),
-                path: '',
-                start: start,
-                end: end,
-                warning: 'Skipped "' + clipName(clip) + '" on A' + (t + 1) +
-                         ': it has no source file (nested sequence or generated media).'
-              });
-              continue;
-            }
-
-            var inPoint = 0, outPoint = 0;
-            try {
-              inPoint = Number(clip.inPoint.seconds);
-              outPoint = Number(clip.outPoint.seconds);
-            } catch (e6) { inPoint = 0; outPoint = 0; }
-
-            var srcDur = outPoint - inPoint;
-            var tlDur = end - start;
-            var speed = (tlDur > 0.01) ? (srcDur / tlDur) : 1;
-
-            /* Premiere quantises clip edges to frames, so a normal clip can
-               differ from its source by a frame or two. Only treat a real
-               speed change as one; frame noise must not distort the mapping. */
-            if (Math.abs(srcDur - tlDur) <= Math.max(0.08, tlDur * 0.05)) speed = 1;
-
-            all.push({
-              track: t,
-              name: clipName(clip),
-              path: mediaPath,
-              start: start,
-              end: end,
-              srcIn: inPoint,
-              srcOut: outPoint,
-              speed: speed
-            });
-          }
-        }
-
-        /* --- sequence length ---------------------------------------------
-           Sequence.end is a STRING of ticks, not a Time object. .seconds does
-           not exist on it, which silently produced NaN. */
         var seqEnd = 0;
         try {
           var endTicks = Number(seq.end);
           if (isFinite(endTicks) && endTicks > 0) seqEnd = endTicks / TICKS_PER_SECOND - base;
-        } catch (e7) { seqEnd = 0; }
-        if (!isFinite(seqEnd) || seqEnd <= 0) seqEnd = maxClipEnd;
+        } catch (eLen) { seqEnd = 0; }
+        if (!isFinite(seqEnd) || seqEnd <= 0) {
+          for (var mt = 0; mt < tracks.numTracks; mt++) {
+            var mClips = tracks[mt].clips;
+            for (var mc = 0; mc < mClips.numItems; mc++) {
+              try {
+                var me = Number(mClips[mc].end.seconds) - base;
+                if (isFinite(me) && me > seqEnd) seqEnd = me;
+              } catch (eMc) {}
+            }
+          }
+        }
         if (!isFinite(seqEnd) || seqEnd <= 0) {
           return fail('Premiere reports this sequence as zero length and no audio clips were found.');
         }
 
-        /* --- caption range ------------------------------------------------
-           The panel usually asks for 'auto', which picks the most specific
-           range that actually exists: selected clips, else the work area if
-           it is enabled, else the whole sequence. */
+        /* --- caption range (resolved BEFORE scanning clip media paths) ---- */
         var requestedScope = opts.scope || 'auto';
         var scope = requestedScope;
         var selRanges = [];
@@ -402,7 +424,6 @@ var CaptionAI = (function () {
             if (!isFinite(wi) || !isFinite(wo) || wo <= wi + 0.1) return null;
             var start = Math.max(0, wi);
             var end = Math.min(seqEnd, wo);
-            // A work area spanning the whole sequence is not a narrower range.
             if (start <= 0.05 && end >= seqEnd - 0.05) return null;
             return [start, end];
           } catch (eW2) { return null; }
@@ -443,22 +464,72 @@ var CaptionAI = (function () {
           return fail('The caption range is empty (start ' + rangeStart + 's, end ' + rangeEnd + 's).');
         }
 
-        /* --- keep only clips inside the range ----------------------------- */
-        var clips = [];
+        /* --- collect only unmuted audio clips overlapping target range --- */
+        var warnings = [];
         var seenWarnings = {};
-        for (var k = 0; k < all.length; k++) {
-          var entry = all[k];
-          if (entry.end <= rangeStart || entry.start >= rangeEnd) continue;
-          if (scope === 'selection' && !overlapsAny(entry.start, entry.end, selRanges)) continue;
+        var clips = [];
 
-          if (!entry.path) {
-            if (entry.warning && !seenWarnings[entry.warning]) {
-              seenWarnings[entry.warning] = true;
-              warnings.push(entry.warning);
-            }
-            continue;
+        for (var t = 0; t < tracks.numTracks; t++) {
+          var track = tracks[t];
+          var muted = false;
+          try { muted = !!track.isMuted(); } catch (e1) {
+            try { muted = !!track.mute; } catch (e2) { muted = false; }
           }
-          clips.push(entry);
+          if (muted) continue;
+
+          var clipCount = track.clips.numItems;
+          for (var c = 0; c < clipCount; c++) {
+            var clip = track.clips[c];
+
+            var start, end;
+            try {
+              start = Number(clip.start.seconds) - base;
+              end = Number(clip.end.seconds) - base;
+            } catch (e3) { continue; }
+            if (!isFinite(start) || !isFinite(end) || end <= start) continue;
+            if (end <= rangeStart || start >= rangeEnd) continue;
+            if (scope === 'selection' && !overlapsAny(start, end, selRanges)) continue;
+
+            var disabled = false;
+            try { disabled = !!clip.disabled; } catch (e4) { disabled = false; }
+            if (disabled) continue;
+
+            var cName = clipName(clip);
+            var mediaPath = '';
+            try { mediaPath = clip.projectItem.getMediaPath() || ''; } catch (e5) { mediaPath = ''; }
+
+            if (!mediaPath) {
+              var warnText = 'Skipped "' + cName + '" on A' + (t + 1) +
+                ': it has no source file (nested sequence or generated media).';
+              if (!seenWarnings[warnText]) {
+                seenWarnings[warnText] = true;
+                warnings.push(warnText);
+              }
+              continue;
+            }
+
+            var inPoint = 0, outPoint = 0;
+            try {
+              inPoint = Number(clip.inPoint.seconds);
+              outPoint = Number(clip.outPoint.seconds);
+            } catch (e6) { inPoint = 0; outPoint = 0; }
+
+            var srcDur = outPoint - inPoint;
+            var tlDur = end - start;
+            var speed = (tlDur > 0.01) ? (srcDur / tlDur) : 1;
+            if (Math.abs(srcDur - tlDur) <= Math.max(0.08, tlDur * 0.05)) speed = 1;
+
+            clips.push({
+              track: t,
+              name: cName,
+              path: mediaPath,
+              start: start,
+              end: end,
+              srcIn: inPoint,
+              srcOut: outPoint,
+              speed: speed
+            });
+          }
         }
 
         if (!clips.length) {
@@ -466,7 +537,7 @@ var CaptionAI = (function () {
         }
 
         var timebase = 0;
-        try { timebase = Number(seq.timebase); } catch (e7) { timebase = 0; }
+        try { timebase = Number(seq.timebase); } catch (eTb) { timebase = 0; }
         var fps = timebase > 0 ? (TICKS_PER_SECOND / timebase) : 25;
 
         return j({
@@ -572,28 +643,11 @@ var CaptionAI = (function () {
         var seq = app.project.activeSequence;
         if (!seq) return fail('No active sequence. Open a sequence in the Timeline first.');
 
-        var base = 0;
-        try {
-          var zp = Number(seq.zeroPoint);
-          if (isFinite(zp) && zp > 0) base = zp / TICKS_PER_SECOND;
-        } catch (eBase) { base = 0; }
-
+        var base = seqBaseSec(seq);
         var startAbs = base + Number(opts.startAt || 0);
         var endAbs = base + Number(opts.endAt || 0);
         if (!isFinite(endAbs) || endAbs <= startAbs) endAbs = startAbs + 1;
         var replaceExisting = !!opts.replaceExisting;
-
-        function secOf(t) {
-          if (t === null || t === undefined) return null;
-          try {
-            if (typeof t.seconds === 'number' && isFinite(t.seconds)) return t.seconds;
-            if (t.ticks !== undefined) {
-              var n = Number(t.ticks);
-              if (isFinite(n)) return n / TICKS_PER_SECOND;
-            }
-          } catch (e0) {}
-          return null;
-        }
 
         function isMogrtClip(clip) {
           try {
@@ -722,12 +776,7 @@ var CaptionAI = (function () {
           return fail('Target video track V' + (trackIndex + 1) + ' is out of range.');
         }
 
-        var base = 0;
-        try {
-          var zp = Number(seq.zeroPoint);
-          if (isFinite(zp) && zp > 0) base = zp / TICKS_PER_SECOND;
-        } catch (eBase) { base = 0; }
-
+        var base = seqBaseSec(seq);
         var startAbs = base + Number(opts.start || 0);
         var endAbs = base + Number(opts.end || 0);
         var wantDur = endAbs - startAbs;
@@ -735,52 +784,7 @@ var CaptionAI = (function () {
           return fail('Cue duration is too short.');
         }
 
-        function secOf(t) {
-          if (t === null || t === undefined) return null;
-          try {
-            if (typeof t.seconds === 'number' && isFinite(t.seconds)) return t.seconds;
-            if (t.ticks !== undefined) {
-              var n = Number(t.ticks);
-              if (isFinite(n)) return n / TICKS_PER_SECOND;
-            }
-          } catch (e0) {}
-          return null;
-        }
-
-        function ticksStr(seconds) {
-          return String(Math.round(seconds * TICKS_PER_SECOND));
-        }
-
-        function setClipTime(clip, prop, seconds) {
-          var tStr = ticksStr(seconds);
-          var tries = [
-            function () {
-              var tm = new Time();
-              tm.seconds = seconds;
-              clip[prop] = tm;
-            },
-            function () { clip[prop].seconds = seconds; },
-            function () { clip[prop].ticks = tStr; },
-            function () { clip[prop] = tStr; },
-            function () { clip[prop] = seconds; }
-          ];
-          for (var i = 0; i < tries.length; i++) {
-            try {
-              tries[i]();
-              var actual = secOf(clip[prop]);
-              if (actual !== null && Math.abs(actual - seconds) <= 0.12) return true;
-            } catch (e1) {}
-          }
-          return false;
-        }
-
-        function hostSleep(ms) {
-          if (!ms || ms <= 0) return;
-          try {
-            if (typeof $ !== 'undefined' && typeof $.sleep === 'function') $.sleep(ms);
-          } catch (eSlp) {}
-        }
-
+        var textPrebaked = !!opts.textPrebaked;
         var isAfterEffects = !!opts.isAfterEffects;
         var heavyGpu = !!opts.heavyGpu;
 
@@ -810,20 +814,22 @@ var CaptionAI = (function () {
           return fail('Premiere did not place the MOGRT clip on V' + (trackIndex + 1) + '.');
         }
 
-        // Wait briefly for AE / Essential Graphics host initialization before mutating clip properties.
+        // Wait briefly for AE / Essential Graphics host initialization before mutating text properties.
         var mgt = null;
-        try { mgt = clip.getMGTComponent(); } catch (eMgt0) { mgt = null; }
-        if (!mgt) {
-          var maxTries = heavyGpu ? 8 : (isAfterEffects ? 5 : 2);
-          for (var w = 0; w < maxTries && !mgt; w++) {
-            hostSleep(45);
-            try { mgt = clip.getMGTComponent(); } catch (eMgtW) { mgt = null; }
+        if (!textPrebaked) {
+          try { mgt = clip.getMGTComponent(); } catch (eMgt0) { mgt = null; }
+          if (!mgt) {
+            var maxTries = heavyGpu ? 8 : (isAfterEffects ? 5 : 2);
+            for (var w = 0; w < maxTries && !mgt; w++) {
+              hostSleep(45);
+              try { mgt = clip.getMGTComponent(); } catch (eMgtW) { mgt = null; }
+            }
           }
-        }
-        if (heavyGpu) {
-          hostSleep(70);
-        } else if (isAfterEffects) {
-          hostSleep(35);
+          if (heavyGpu) {
+            hostSleep(70);
+          } else if (isAfterEffects) {
+            hostSleep(35);
+          }
         }
 
         // Trim or extend clip end to match cue duration.
@@ -835,11 +841,13 @@ var CaptionAI = (function () {
             if (inSec === null) inSec = 0;
             setClipTime(clip, 'outPoint', inSec + wantDur);
           }
-          if (heavyGpu) hostSleep(40);
-          else if (isAfterEffects) hostSleep(20);
+          if (!textPrebaked) {
+            if (heavyGpu) hostSleep(40);
+            else if (isAfterEffects) hostSleep(20);
+          }
         }
 
-        // Update MOGRT text parameter(s) (supports single field and multi-field arrays).
+        // Update MOGRT text parameter(s) unless the synthesized .mogrt already bakes cue text.
         var textValue = String(opts.text === undefined || opts.text === null ? '' : opts.text);
         var textsArr = (opts.texts && typeof opts.texts === 'object' && typeof opts.texts.length === 'number')
           ? opts.texts
@@ -850,7 +858,7 @@ var CaptionAI = (function () {
           ? opts.paramNames
           : null;
         var refreshUI = !!opts.refreshUI || isAfterEffects || heavyGpu;
-        var textSet = false;
+        var textSet = textPrebaked;
         var warning = '';
 
         function nameAllowed(disp) {
@@ -862,121 +870,97 @@ var CaptionAI = (function () {
           return !!paramName && disp === paramName;
         }
 
-        function parseJsonEntry(prop) {
-          var rawVal = null;
-          try { rawVal = prop.getValue(); } catch (eVal) { rawVal = null; }
-          if (typeof rawVal === 'string' && rawVal.charAt(0) === '{') {
-            try {
-              var parsed = JSON.parse(rawVal);
-              if (parsed && typeof parsed === 'object' && ('textEditValue' in parsed)) {
-                return { prop: prop, json: parsed };
-              }
-            } catch (eJson) {}
-          }
-          return { prop: prop, json: null, raw: rawVal };
-        }
-
-        function writePropValue(entry, valStr, updateUi) {
-          var s = String(valStr === undefined || valStr === null ? '' : valStr);
-          if (entry.json) {
-            // AE GPU effects (Light Sweep, Gradient) can fault on 0-length text bounds or mismatched run arrays.
-            var safeText = s.length ? s : ' ';
-            entry.json.textEditValue = safeText;
-            if (entry.json.fontTextRunLength && typeof entry.json.fontTextRunLength.length === 'number') {
-              entry.json.fontTextRunLength = [safeText.length];
-            }
-            if (entry.json.fontEditValue && typeof entry.json.fontEditValue.length === 'number' && entry.json.fontEditValue.length > 1) {
-              entry.json.fontEditValue = [entry.json.fontEditValue[0]];
-            }
-            entry.prop.setValue(JSON.stringify(entry.json), !!updateUi);
-          } else {
-            entry.prop.setValue(s, !!updateUi);
-          }
-        }
-
-        if (!mgt) {
-          try { mgt = clip.getMGTComponent(); } catch (eMgt) { mgt = null; }
-        }
-        if (!mgt && clip.components) {
-          for (var ci = 0; ci < clip.components.numItems; ci++) {
-            var comp = clip.components[ci];
-            if (comp && comp.properties && comp.properties.numItems > 0) {
-              try {
-                for (var pi = 0; pi < comp.properties.numItems; pi++) {
-                  var pv = comp.properties[pi].getValue();
-                  if (typeof pv === 'string' && pv.indexOf('textEditValue') >= 0) {
-                    mgt = comp;
-                    break;
+        if (!textPrebaked) {
+          if (!mgt && clip.components) {
+            for (var ci = 0; ci < clip.components.numItems; ci++) {
+              var comp = clip.components[ci];
+              if (comp && comp.properties && comp.properties.numItems > 0) {
+                try {
+                  for (var pi = 0; pi < comp.properties.numItems; pi++) {
+                    var pv = comp.properties[pi].getValue();
+                    if (typeof pv === 'string' && pv.indexOf('textEditValue') >= 0) {
+                      mgt = comp;
+                      break;
+                    }
                   }
+                } catch (eScan) {}
+              }
+              if (mgt) break;
+            }
+          }
+
+          if (mgt && mgt.properties) {
+            var props = mgt.properties;
+            var targets = [];
+
+            // Fast path: match known displayNames from definition.json without reading all 30+ sliders/colors.
+            for (var p = 0; p < props.numItems; p++) {
+              var prop = props[p];
+              var disp = '';
+              try { disp = String(prop.displayName || ''); } catch (eName) { disp = ''; }
+              if (nameAllowed(disp)) {
+                targets.push(parseJsonEntry(prop));
+              }
+            }
+
+            // Fallback path: scan all properties for textEditValue JSON, or known text parameter names.
+            if (!targets.length) {
+              for (var p2 = 0; p2 < props.numItems; p2++) {
+                var entry = parseJsonEntry(props[p2]);
+                if (entry.json) targets.push(entry);
+              }
+            }
+            if (!targets.length) {
+              for (var p3 = 0; p3 < props.numItems; p3++) {
+                var disp3 = '';
+                try { disp3 = String(props[p3].displayName || ''); } catch (eD3) { disp3 = ''; }
+                if (/^(source text|textlayer|text|title|caption)$/i.test(disp3)) {
+                  targets.push(parseJsonEntry(props[p3]));
                 }
-              } catch (eScan) {}
-            }
-            if (mgt) break;
-          }
-        }
-
-        if (mgt && mgt.properties) {
-          var props = mgt.properties;
-          var targets = [];
-
-          // Fast path: match known displayNames from definition.json without reading all 30+ sliders/colors.
-          for (var p = 0; p < props.numItems; p++) {
-            var prop = props[p];
-            var disp = '';
-            try { disp = String(prop.displayName || ''); } catch (eName) { disp = ''; }
-            if (nameAllowed(disp)) {
-              targets.push(parseJsonEntry(prop));
-            }
-          }
-
-          // Fallback path: scan all properties if displayNames were localized or missing.
-          if (!targets.length) {
-            for (var p2 = 0; p2 < props.numItems; p2++) {
-              var entry = parseJsonEntry(props[p2]);
-              if (entry.json) targets.push(entry);
-            }
-          }
-
-          var hasTransformAfter = (!!opts.fitToScreen || String(opts.positionMode || 'template') !== 'template');
-
-          if (textsArr && textsArr.length && targets.length) {
-            var updatedCount = 0;
-            var limit = Math.min(targets.length, textsArr.length);
-            for (var ti = 0; ti < limit; ti++) {
-              try {
-                var isFinalWrite = refreshUI && !hasTransformAfter && (ti === limit - 1);
-                writePropValue(targets[ti], textsArr[ti], isFinalWrite);
-                updatedCount++;
-              } catch (eMulti) {
-                if (!warning) warning = 'Placed clip, but updating text field ' + (ti + 1) + ' failed: ' + eMulti;
               }
             }
-            textSet = updatedCount > 0;
-          } else {
-            var picked = null;
-            if (targets.length) {
-              var idx = (isFinite(paramIndex) && paramIndex >= 0 && paramIndex < targets.length) ? paramIndex : 0;
-              picked = targets[idx];
-            } else if (paramName && typeof props.getParamForDisplayName === 'function') {
-              try {
-                var byName = props.getParamForDisplayName(paramName);
-                if (byName) picked = parseJsonEntry(byName);
-              } catch (eByName) {}
-            }
 
-            if (picked && picked.prop) {
-              try {
-                writePropValue(picked, textValue, refreshUI && !hasTransformAfter);
-                textSet = true;
-              } catch (eSet) {
-                warning = 'Placed clip, but text parameter update failed: ' + eSet;
+            var hasTransformAfter = (!!opts.fitToScreen || String(opts.positionMode || 'template') !== 'template');
+
+            if (textsArr && textsArr.length && targets.length) {
+              var updatedCount = 0;
+              var limit = Math.min(targets.length, textsArr.length);
+              for (var ti = 0; ti < limit; ti++) {
+                try {
+                  var isFinalWrite = refreshUI && (!hasTransformAfter || !isAfterEffects) && (ti === limit - 1);
+                  writePropValue(targets[ti], textsArr[ti], isFinalWrite);
+                  updatedCount++;
+                } catch (eMulti) {
+                  if (!warning) warning = 'Placed clip, but updating text field ' + (ti + 1) + ' failed: ' + eMulti;
+                }
               }
+              if (updatedCount > 0) textSet = true;
             } else {
-              warning = 'Placed clip, but no editable text control was found in this MOGRT.';
+              var picked = null;
+              if (targets.length) {
+                var idx = (isFinite(paramIndex) && paramIndex >= 0 && paramIndex < targets.length) ? paramIndex : 0;
+                picked = targets[idx];
+              } else if (paramName && typeof props.getParamForDisplayName === 'function') {
+                try {
+                  var byName = props.getParamForDisplayName(paramName);
+                  if (byName) picked = parseJsonEntry(byName);
+                } catch (eByName) {}
+              }
+
+              if (picked && picked.prop) {
+                try {
+                  writePropValue(picked, textValue, refreshUI);
+                  textSet = true;
+                } catch (eSet) {
+                  warning = 'Placed clip, but text parameter update failed: ' + eSet;
+                }
+              } else {
+                warning = 'Placed clip, but no editable text control was found in this MOGRT.';
+              }
             }
+          } else {
+            warning = 'Placed clip, but Premiere did not expose MGT properties on this MOGRT.';
           }
-        } else {
-          warning = 'Placed clip, but Premiere did not expose MGT properties on this MOGRT.';
         }
 
         // Fit caption to sequence frame + position (upper / middle / lower).
@@ -1138,10 +1122,10 @@ var CaptionAI = (function () {
           return null;
         }
 
-        var existing = findItemByPath(destination, file.fsName) ||
-                       findItemByPath(app.project.rootItem, file.fsName) ||
-                       findStyleByName(destination) ||
-                       findStyleByName(app.project.rootItem);
+        var existing = findItemByPath(destination, file.fsName) || findStyleByName(destination);
+        if (!existing && destination !== app.project.rootItem) {
+          existing = findItemByPath(app.project.rootItem, file.fsName) || findStyleByName(app.project.rootItem);
+        }
         var alreadyInProject = !!existing;
         var item = existing;
         var actualBinLabel = styleBin ? (CAPTION_BIN_NAME + ' / ' + styleBinName) : (parentBin === app.project.rootItem ? 'Project root' : CAPTION_BIN_NAME);
@@ -1189,25 +1173,6 @@ var CaptionAI = (function () {
           item: itemName,
           bin: actualBinLabel
         });
-      } catch (e) {
-        return fail(e);
-      }
-    },
-
-    /* -------------------------------------------------------- misc utilities */
-    revealInExplorer: function (opts) {
-      try {
-        var p = (opts && opts.path) ? opts.path : '';
-        if (!p) return fail('No path supplied.');
-        var f = new File(p);
-        if (!f.exists) return fail('Path does not exist: ' + p);
-        var dir = f.parent ? f.parent.fsName : f.fsName;
-        try {
-          system.callSystem('explorer /select,"' + f.fsName + '"');
-        } catch (e1) {
-          new Folder(dir).execute();
-        }
-        return j({ ok: true });
       } catch (e) {
         return fail(e);
       }

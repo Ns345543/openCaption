@@ -42,6 +42,12 @@ var Editor = (function () {
   var ui = {};
   var built = false;
   var saveTimer = 0;
+  var needsRender = false;
+  var renderGen = 0;
+  var lastFitWidth = 0;
+  var lastFitGen = -1;
+  var fitRaf = 0;
+  var cs = new CSInterface();
   var pairs = [];        // find/replace rules, kept in replacements.json
   var pairTimer = 0;
   var removals = [];     // words to delete, kept in remove-words.json
@@ -193,17 +199,18 @@ var Editor = (function () {
     } catch (e) { pairs = []; }
   }
 
-  function savePairs() {
+  function savePairs(sync) {
     try {
       Config.ensureDirs();
-      fs.writeFileSync(REPLACEMENTS,
-        JSON.stringify({ version: 1, pairs: pairs }, null, 2), 'utf8');
+      var data = JSON.stringify({ version: 1, pairs: pairs });
+      if (sync === false && fs.writeFile) fs.writeFile(REPLACEMENTS, data, 'utf8', function () {});
+      else fs.writeFileSync(REPLACEMENTS, data, 'utf8');
     } catch (e) { /* a lost list must not break the panel */ }
   }
 
   function savePairsSoon() {
     clearTimeout(pairTimer);
-    pairTimer = setTimeout(savePairs, 500);
+    pairTimer = setTimeout(function () { savePairs(false); }, 500);
   }
 
   function renderPairs() {
@@ -297,17 +304,18 @@ var Editor = (function () {
     } catch (e) { removals = []; }
   }
 
-  function saveRemovals() {
+  function saveRemovals(sync) {
     try {
       Config.ensureDirs();
-      fs.writeFileSync(REMOVALS,
-        JSON.stringify({ version: 1, words: removals }, null, 2), 'utf8');
+      var data = JSON.stringify({ version: 1, words: removals });
+      if (sync === false && fs.writeFile) fs.writeFile(REMOVALS, data, 'utf8', function () {});
+      else fs.writeFileSync(REMOVALS, data, 'utf8');
     } catch (e) { /* a lost list must not break the panel */ }
   }
 
   function saveRemovalsSoon() {
     clearTimeout(removalTimer);
-    removalTimer = setTimeout(saveRemovals, 500);
+    removalTimer = setTimeout(function () { saveRemovals(false); }, 500);
   }
 
   function renderRemovals() {
@@ -549,8 +557,27 @@ var Editor = (function () {
   }
 
   function fitAll() {
+    if (!ui.list || !ui.list.offsetParent) return;
     var areas = ui.list.querySelectorAll('.cue-text');
-    for (var i = 0; i < areas.length; i++) fit(areas[i]);
+    var n = areas.length;
+    var i;
+    if (n) {
+      var heights = new Array(n);
+      for (i = 0; i < n; i++) areas[i].style.height = 'auto';
+      for (i = 0; i < n; i++) heights[i] = Math.max(24, areas[i].scrollHeight);
+      for (i = 0; i < n; i++) areas[i].style.height = heights[i] + 'px';
+    }
+    lastFitWidth = ui.list.clientWidth || 0;
+    lastFitGen = renderGen;
+  }
+
+  function scheduleFitAll() {
+    if (!ui.list || !ui.list.offsetParent) return;
+    if (fitRaf) cancelAnimationFrame(fitRaf);
+    fitRaf = requestAnimationFrame(function () {
+      fitRaf = 0;
+      fitAll();
+    });
   }
 
   /** One AI suggestion under a cue: the corrected text plus two choices. */
@@ -587,6 +614,18 @@ var Editor = (function () {
     return box;
   }
 
+  function syncButtons() {
+    var has = state.cues.length > 0;
+    if (ui.importBtn) ui.importBtn.disabled = state.busy;
+    if (ui.saveBtn) ui.saveBtn.disabled = state.busy;
+    if (ui.importSrtBtn) ui.importSrtBtn.disabled = state.busy;
+    if (ui.importSrtEmpty) ui.importSrtEmpty.disabled = state.busy;
+    if (ui.exportSrtBtn) ui.exportSrtBtn.disabled = state.busy || !has;
+    if (ui.exportBtn) ui.exportBtn.disabled = state.busy || !has;
+    if (ui.replaceMenu) ui.replaceMenu.disabled = state.busy || !has;
+    if (ui.removeMenu) ui.removeMenu.disabled = state.busy || !has;
+  }
+
   function render() {
     if (!built) return;
 
@@ -594,12 +633,7 @@ var Editor = (function () {
     ui.empty.classList.toggle('hidden', has);
     ui.body.classList.toggle('hidden', !has);
     if (ui.reload) ui.reload.classList.toggle('hidden', !state.path && !state.source);
-    if (ui.importSrtBtn) ui.importSrtBtn.disabled = state.busy;
-    if (ui.importSrtEmpty) ui.importSrtEmpty.disabled = state.busy;
-    if (ui.exportSrtBtn) ui.exportSrtBtn.disabled = state.busy || !has;
-    if (ui.exportBtn) ui.exportBtn.disabled = state.busy || !has;
-    if (ui.replaceMenu) ui.replaceMenu.disabled = state.busy || !has;
-    if (ui.removeMenu) ui.removeMenu.disabled = state.busy || !has;
+    syncButtons();
 
     ui.meta.textContent = has
       ? (state.source
@@ -610,7 +644,25 @@ var Editor = (function () {
       : 'Generate captions on the Transcribe tab, or import your own SRT.';
 
     ui.list.innerHTML = '';
-    if (!has) { badge(); return; }
+    if (!has) {
+      needsRender = false;
+      renderGen++;
+      badge();
+      updateFixAll();
+      return;
+    }
+
+    if (!ui.list.offsetParent) {
+      needsRender = true;
+      renderGen++;
+      badge();
+      updateFixAll();
+      return;
+    }
+
+    needsRender = false;
+    renderGen++;
+    var frag = document.createDocumentFragment();
 
     state.cues.forEach(function (cue, index) {
       var row = document.createElement('div');
@@ -668,15 +720,16 @@ var Editor = (function () {
       row.appendChild(head);
       row.appendChild(text);
       if (cue.suggest) row.appendChild(suggestionBlock(cue, index));
-      ui.list.appendChild(row);
+      frag.appendChild(row);
     });
 
+    ui.list.appendChild(frag);
     fitAll();
     badge();
     updateFixAll();
   }
 
-  function persist() {
+  function persist(sync) {
     try {
       Config.ensureDirs();
       var payload = {
@@ -689,13 +742,15 @@ var Editor = (function () {
           return { start: cue.start, end: cue.end, text: cue.text };
         })
       };
-      fs.writeFileSync(STORE, JSON.stringify(payload, null, 2), 'utf8');
+      var data = JSON.stringify(payload);
+      if (sync === false && fs.writeFile) fs.writeFile(STORE, data, 'utf8', function () {});
+      else fs.writeFileSync(STORE, data, 'utf8');
     } catch (e) { /* a lost draft must never break the panel */ }
   }
 
   function scheduleSave() {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(persist, 700);
+    saveTimer = setTimeout(function () { persist(false); }, 700);
   }
 
   function markDirty() {
@@ -764,7 +819,8 @@ var Editor = (function () {
     if (!target) return;
 
     var role = target.dataset.role;
-    var index = rowIndex(target);
+    var row = target.closest('.cue');
+    var index = row ? Number(row.dataset.i) : -1;
     if (index < 0 || !state.cues[index]) return;
     var cue = state.cues[index];
 
@@ -773,8 +829,22 @@ var Editor = (function () {
       state.cues.splice(index, 1);
       state.dirty = true;
       clearTimeout(saveTimer);
-      persist();
-      render();
+      persist(false);
+      if (!state.cues.length) {
+        render();
+      } else {
+        if (row && row.parentNode) row.parentNode.removeChild(row);
+        var rows = ui.list.children;
+        for (var i = index; i < rows.length; i++) {
+          var r = rows[i];
+          r.dataset.i = String(i);
+          var numEl = r.querySelector('.cue-num');
+          if (numEl) numEl.textContent = i < 9 ? '0' + (i + 1) : String(i + 1);
+        }
+        renderGen++;
+        badge();
+        updateFixAll();
+      }
       setStatus('Cue removed.', '');
       return;
     }
@@ -784,8 +854,15 @@ var Editor = (function () {
       if (!cue.suggest) return;
       cue.text = cue.suggest;
       delete cue.suggest;
+      var area = row.querySelector('.cue-text');
+      if (area) {
+        area.value = cue.text;
+        fit(area);
+      }
+      var tip = row.querySelector('.cue-suggest');
+      if (tip && tip.parentNode) tip.parentNode.removeChild(tip);
+      updateFixAll();
       markDirty();
-      render();
       setStatus('Applied the fix to cue ' + (index + 1) + '.', 'ok');
       return;
     }
@@ -793,7 +870,9 @@ var Editor = (function () {
     if (role === 'keep') {
       e.preventDefault();
       delete cue.suggest;
-      render();
+      var tipKeep = row.querySelector('.cue-suggest');
+      if (tipKeep && tipKeep.parentNode) tipKeep.parentNode.removeChild(tipKeep);
+      updateFixAll();
       setStatus('Kept your text in cue ' + (index + 1) + '.', '');
     }
   }
@@ -941,7 +1020,7 @@ var Editor = (function () {
 
     var picked = { ok: false, unavailable: true };
     try {
-      picked = new CSInterface().showSaveDialog(title, dir, types, name);
+      picked = cs.showSaveDialog(title, dir, types, name);
     } catch (e) {
       picked = { ok: false, unavailable: true };
     }
@@ -1033,7 +1112,7 @@ var Editor = (function () {
     var start = state.source ? path.dirname(state.source) : Config.CAPTION_DIR;
     var picked = { ok: false, unavailable: true };
     try {
-      picked = new CSInterface().pickFile('Open an SRT file', start, ['srt']);
+      picked = cs.pickFile('Open an SRT file', start, ['srt']);
     } catch (e) {
       picked = { ok: false, unavailable: true };
     }
@@ -1363,8 +1442,12 @@ var Editor = (function () {
     }
     if (ui.replaceAdd) {
       ui.replaceAdd.addEventListener('click', function () {
+        if (pairs.length >= 40) {
+          setStatus('Maximum of 40 replacement pairs reached.', 'warn');
+          return;
+        }
         pairs.push({ find: '', replace: '' });
-        savePairs();
+        savePairs(false);
         renderPairs();
         var inputs = ui.replaceList.querySelectorAll('input');
         if (inputs.length) {
@@ -1386,8 +1469,12 @@ var Editor = (function () {
     }
     if (ui.removeAdd) {
       ui.removeAdd.addEventListener('click', function () {
+        if (removals.length >= 60) {
+          setStatus('Maximum of 60 word removal entries reached.', 'warn');
+          return;
+        }
         removals.push('');
-        saveRemovals();
+        saveRemovals(false);
         renderRemovals();
         var inputs = ui.removeList.querySelectorAll('input');
         if (inputs.length) inputs[inputs.length - 1].focus();
@@ -1418,7 +1505,7 @@ var Editor = (function () {
     if (ui.reload) ui.reload.addEventListener('click', reload);
 
     /* A narrower panel reflows cue text; keep the textareas matching it. */
-    window.addEventListener('resize', fitAll);
+    window.addEventListener('resize', scheduleFitAll);
 
     loadPairs();
     loadRemovals();
@@ -1444,8 +1531,15 @@ var Editor = (function () {
     },
     refresh: function () {
       if (!built) return;
+      if (needsRender) {
+        render();
+        return;
+      }
       badge();
-      fitAll();
+      if (ui.list && ui.list.offsetParent &&
+          (lastFitGen !== renderGen || Math.abs((ui.list.clientWidth || 0) - lastFitWidth) > 1)) {
+        fitAll();
+      }
     }
   };
 })();

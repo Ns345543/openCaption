@@ -25,12 +25,13 @@ var Audio = (function () {
   function run(exe, args) {
     try {
       return spawnSync(exe, args, {
-        maxBuffer: 512 * 1024 * 1024,
+        maxBuffer: 64 * 1024 * 1024,
         windowsHide: true,
         encoding: 'buffer'
       });
     } catch (e) {
-      return { error: e, status: -1, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
+      var empty = typeof Buffer !== 'undefined' ? Buffer.alloc(0) : null;
+      return { error: e, status: -1, stdout: empty, stderr: empty };
     }
   }
 
@@ -235,14 +236,6 @@ var Audio = (function () {
     return r.stdout || Buffer.alloc(0);
   }
 
-  /** True when the media file has at least one audio stream. */
-  function hasAudio(file) {
-    if (!ffmpegPath) return false;
-    var r = run(ffmpegPath, ['-hide_banner', '-nostdin', '-i', file]);
-    var text = ((r.stderr || Buffer.alloc(0)).toString('utf8'));
-    return /Stream #\d+:\d+.*: Audio:/.test(text);
-  }
-
   /**
    * Builds a PCM buffer covering [from, to) of the sequence.
    * plan: array of { track, start, end, in, out, speed, path, name }
@@ -282,10 +275,20 @@ var Audio = (function () {
 
       var offset = Math.round((s - from) * SAMPLE_RATE);
       var count = Math.min(Math.floor(pcm.length / 2), total - offset);
-      for (var n = 0; n < count; n++) {
-        if (filled[offset + n]) continue;   // a higher-priority track already covers this sample
-        out.writeInt16LE(pcm.readInt16LE(n * 2), (offset + n) * 2);
-        filled[offset + n] = 1;
+      if (count <= 0) continue;
+
+      // Batch contiguous unfilled runs into native Buffer.copy() calls instead of per-sample JS calls.
+      var n = 0;
+      while (n < count) {
+        while (n < count && filled[offset + n]) n++;
+        var runStart = n;
+        while (n < count && !filled[offset + n]) {
+          filled[offset + n] = 1;
+          n++;
+        }
+        if (n > runStart) {
+          pcm.copy(out, (offset + runStart) * 2, runStart * 2, n * 2);
+        }
       }
     }
     return out;
@@ -411,14 +414,19 @@ var Audio = (function () {
     return out;
   }
 
-  function tempFile(name) {
-    var dir = path.join(NODE.os.tmpdir(), 'CaptionAI');
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    return path.join(dir, name);
-  }
-
-  function cleanup(file) {
-    try { if (file && fs.existsSync(file)) fs.unlinkSync(file); } catch (e) { /* ignore */ }
+  function cleanupTempDir() {
+    try {
+      var dir = (typeof Config !== 'undefined' && Config.TEMP_DIR)
+        ? Config.TEMP_DIR
+        : path.join(NODE.os.tmpdir(), 'CaptionAI');
+      if (!fs.existsSync(dir)) return;
+      var items = fs.readdirSync(dir);
+      for (var i = 0; i < items.length; i++) {
+        if (/^slice_\d+\.wav$/i.test(items[i])) {
+          try { fs.unlinkSync(path.join(dir, items[i])); } catch (e0) {}
+        }
+      }
+    } catch (e) { /* ignore */ }
   }
 
   return {
@@ -428,13 +436,11 @@ var Audio = (function () {
     diagnose: diagnose,
     status: function () { return { path: ffmpegPath, error: lastError }; },
     extractPcm: extractPcm,
-    hasAudio: hasAudio,
     renderChunk: renderChunk,
     peak: peak,
     wavBuffer: wavBuffer,
     writeWavFile: writeWavFile,
     speechSegments: speechSegments,
-    tempFile: tempFile,
-    cleanup: cleanup
+    cleanupTempDir: cleanupTempDir
   };
 })();

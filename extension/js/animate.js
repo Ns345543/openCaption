@@ -39,11 +39,13 @@ var Animate = (function () {
   var onLog = null;
   var cs = new CSInterface();
   var built = false;
+  var scanned = false;
   var library = [];
   var inspectedPath = '';
   var running = false;
   var stopRequested = false;
   var progressTimer = 0;
+  var searchTimer = 0;
 
   function $(id) { return document.getElementById(id); }
 
@@ -245,7 +247,23 @@ var Animate = (function () {
     try {
       if (videoEl.readyState > 0) videoEl.currentTime = 0;
     } catch (e1) {}
+    if (videoEl.hasAttribute('src') || videoEl.hasAttribute('data-src')) {
+      videoEl.removeAttribute('src');
+      videoEl.removeAttribute('data-src');
+      try { videoEl.load(); } catch (eLoad) {}
+    }
     videoEl.classList.add('hidden');
+  }
+
+  function unloadGridVideos() {
+    if (!ui.grid) return;
+    var vids = ui.grid.querySelectorAll('video');
+    for (var i = 0; i < vids.length; i++) stopVideo(vids[i]);
+  }
+
+  function unloadAllVideos() {
+    stopVideo(ui.selectedVideo);
+    unloadGridVideos();
   }
 
   function bindHoverPreview(container, videoEl, itemGetter) {
@@ -415,7 +433,6 @@ var Animate = (function () {
     var isStyleMode = (mode === 'style' && !!st);
 
     if (ui.styleActionBox) ui.styleActionBox.classList.toggle('hidden', !isStyleMode);
-    if (ui.mogrtApplyBox) ui.mogrtApplyBox.classList.toggle('hidden', false);
     if (ui.paramField) ui.paramField.classList.toggle('hidden', isStyleMode);
     if (ui.autoApplyWrap) ui.autoApplyWrap.classList.toggle('hidden', isStyleMode);
 
@@ -567,6 +584,18 @@ var Animate = (function () {
     renderStyleActionBox();
   }
 
+  function updateCardSelection() {
+    if (!ui.grid) return;
+    var currentActive = activeItem();
+    var activePathLower = currentActive ? currentActive.path.toLowerCase() : '';
+    var cards = ui.grid.querySelectorAll('.mogrt-card');
+    for (var i = 0; i < cards.length; i++) {
+      var on = !!activePathLower && cards[i].getAttribute('data-path') === activePathLower;
+      cards[i].classList.toggle('active', on);
+      cards[i].setAttribute('aria-checked', on ? 'true' : 'false');
+    }
+  }
+
   function renderGrid() {
     if (!ui.grid) return;
     var query = String((ui.search && ui.search.value) || '').trim().toLowerCase();
@@ -605,7 +634,9 @@ var Animate = (function () {
       }
     }
 
+    unloadGridVideos();
     ui.grid.innerHTML = '';
+    var frag = document.createDocumentFragment();
 
     filtered.forEach(function (item) {
       var isStyle = item.kind === 'style';
@@ -618,6 +649,7 @@ var Animate = (function () {
         (active ? ' active' : '') +
         (item.videoUrl ? ' has-video' : '') +
         (isStyle ? ' is-style-card' : '');
+      card.setAttribute('data-path', itemLower);
       card.setAttribute('role', 'radio');
       card.setAttribute('tabindex', '0');
       card.setAttribute('aria-checked', active ? 'true' : 'false');
@@ -629,6 +661,8 @@ var Animate = (function () {
       if (item.thumbUrl) {
         var img = document.createElement('img');
         img.className = 'mogrt-thumb';
+        img.loading = 'lazy';
+        img.decoding = 'async';
         img.src = item.thumbUrl;
         img.alt = '';
         prev.appendChild(img);
@@ -714,8 +748,7 @@ var Animate = (function () {
           cfg.paramIndex = 0;
         }
         renderSelected();
-        renderFilterBar();
-        renderGrid();
+        updateCardSelection();
         refreshCues();
         save();
       }
@@ -728,8 +761,10 @@ var Animate = (function () {
         }
       });
 
-      ui.grid.appendChild(card);
+      frag.appendChild(card);
     });
+
+    ui.grid.appendChild(frag);
   }
 
   function rescan() {
@@ -737,11 +772,16 @@ var Animate = (function () {
       setStatus((typeof Mogrt !== 'undefined' && Mogrt.error) || 'Preset helper unavailable.', 'err');
       return;
     }
+    scanned = true;
     library = Mogrt.scanLibrary();
     renderFilterBar();
     renderSelected();
     renderGrid();
     refreshCues();
+  }
+
+  function ensureScanned() {
+    if (!scanned) rescan();
   }
 
   function importCustomMogrt() {
@@ -878,25 +918,25 @@ var Animate = (function () {
   }
 
   function refreshCues() {
-    var cues = currentCues();
     var meta = currentMeta();
+    var cueCount = Number(meta.count) || 0;
 
     if (ui.cueBadge) {
-      ui.cueBadge.textContent = cues.length ? cues.length + ' cue' + (cues.length === 1 ? '' : 's') : 'no cues';
-      ui.cueBadge.className = 'badge' + (cues.length ? ' ok' : '');
+      ui.cueBadge.textContent = cueCount ? cueCount + ' cue' + (cueCount === 1 ? '' : 's') : 'no cues';
+      ui.cueBadge.className = 'badge' + (cueCount ? ' ok' : '');
     }
 
     if (ui.cueSummary) {
-      if (cues.length) {
+      if (cueCount) {
         var seqNote = meta.sequence ? ' from "' + meta.sequence + '"' : '';
-        ui.cueSummary.textContent = cues.length + ' recent cue(s)' + seqNote + ' ready for timeline placement.';
+        ui.cueSummary.textContent = cueCount + ' recent cue(s)' + seqNote + ' ready for timeline placement.';
       } else {
         ui.cueSummary.textContent = 'No recent captions yet. Run Generate on the Transcribe tab or import an SRT in Editor.';
       }
     }
 
     if (ui.applyBtn && !running) {
-      ui.applyBtn.disabled = !cues.length || !activeItem();
+      ui.applyBtn.disabled = !cueCount || !activeItem();
     }
     if (ui.styleSendBtn && !running) {
       ui.styleSendBtn.disabled = !selectedStyle();
@@ -934,7 +974,8 @@ var Animate = (function () {
 
   function setBusy(busy) {
     running = busy;
-    if (ui.applyBtn) ui.applyBtn.disabled = busy || !currentCues().length || !activeItem();
+    var cueCount = Number(currentMeta().count) || 0;
+    if (ui.applyBtn) ui.applyBtn.disabled = busy || !cueCount || !activeItem();
     if (ui.styleSendBtn) ui.styleSendBtn.disabled = busy || !selectedStyle();
     if (ui.importBtn) ui.importBtn.disabled = busy;
     if (ui.styleImportBtn) ui.styleImportBtn.disabled = busy;
@@ -1070,34 +1111,6 @@ var Animate = (function () {
     setStatus('', '');
     setProgress(2, selStyle ? 'preparing styled template…' : 'preparing track…');
 
-    if (selStyle) {
-      if (typeof Mogrt === 'undefined' || typeof Mogrt.buildStyleMogrt !== 'function') {
-        setBusy(false);
-        return { ok: false, error: 'Style timeline synthesizer unavailable.' };
-      }
-      if (!premiereAppPath && typeof Premiere.ping === 'function') {
-        try {
-          var pInfo = await Premiere.ping();
-          if (pInfo && pInfo.appPath) premiereAppPath = pInfo.appPath;
-        } catch (ePing) {}
-      }
-      var builtStyle = Mogrt.buildStyleMogrt(selStyle, { appPath: premiereAppPath });
-      if (!builtStyle || !builtStyle.ok || !builtStyle.item) {
-        var msgBuildErr = (builtStyle && builtStyle.error) || 'Could not prepare .prtextstyle for timeline placement.';
-        setProgress(0, 'failed');
-        if (!opts.silent) setStatus(msgBuildErr, 'warn');
-        logLine('! ' + msgBuildErr, 'warn');
-        setBusy(false);
-        return { ok: false, error: msgBuildErr };
-      }
-      sel = builtStyle.item;
-    }
-
-    var startedAt = Date.now();
-    var fields = sel.textFields || [];
-    var paramIdx = Math.max(0, parseInt(cfg.paramIndex, 10) || 0);
-    var paramName = (fields[paramIdx] && fields[paramIdx].name) || (fields[0] && fields[0].name) || 'TextLayer';
-
     var prepared = cues.map(function (c) {
       return { start: Number(c.start), end: Number(c.end), text: String(c.text || '') };
     }).sort(function (a, b) { return a.start - b.start; });
@@ -1110,6 +1123,36 @@ var Animate = (function () {
         }
       }
     }
+
+    var firstStyleBuild = null;
+    if (selStyle) {
+      if (typeof Mogrt === 'undefined' || typeof Mogrt.buildStyleMogrt !== 'function') {
+        setBusy(false);
+        return { ok: false, error: 'Style timeline synthesizer unavailable.' };
+      }
+      if (!premiereAppPath && typeof Premiere.ping === 'function') {
+        try {
+          var pInfo = await Premiere.ping();
+          if (pInfo && pInfo.appPath) premiereAppPath = pInfo.appPath;
+        } catch (ePing) {}
+      }
+      var firstFormattedText = formatCase(prepared[0].text, cfg.textCase);
+      firstStyleBuild = Mogrt.buildStyleMogrt(selStyle, { appPath: premiereAppPath, text: firstFormattedText });
+      if (!firstStyleBuild || !firstStyleBuild.ok || !firstStyleBuild.item) {
+        var msgBuildErr = (firstStyleBuild && firstStyleBuild.error) || 'Could not prepare .prtextstyle for timeline placement.';
+        setProgress(0, 'failed');
+        if (!opts.silent) setStatus(msgBuildErr, 'warn');
+        logLine('! ' + msgBuildErr, 'warn');
+        setBusy(false);
+        return { ok: false, error: msgBuildErr };
+      }
+      sel = firstStyleBuild.item;
+    }
+
+    var startedAt = Date.now();
+    var fields = sel.textFields || [];
+    var paramIdx = Math.max(0, parseInt(cfg.paramIndex, 10) || 0);
+    var paramName = (fields[paramIdx] && fields[paramIdx].name) || (fields[0] && fields[0].name) || 'TextLayer';
 
     var rangeStart = prepared[0].start;
     var rangeEnd = prepared[prepared.length - 1].end;
@@ -1136,7 +1179,7 @@ var Animate = (function () {
       var textFailures = 0;
       var firstWarn = '';
       var paramNames = fields.map(function (f) { return f.name; });
-      var jobs = buildPlacementJobs(prepared, fields.length);
+      var jobs = buildPlacementJobs(prepared, selStyle ? 1 : fields.length);
 
       var fps = (prep.fps && isFinite(prep.fps) && prep.fps > 0) ? prep.fps : 30;
       var frameDur = 1 / fps;
@@ -1166,18 +1209,31 @@ var Animate = (function () {
         if (stopRequested) break;
         var job = jobs[ci];
         var isLast = (ci === jobs.length - 1);
+        var cuePath = sel.path;
+        if (selStyle) {
+          var cueBuild = (ci === 0 && firstStyleBuild && firstStyleBuild.item &&
+            firstStyleBuild.item.textFields && firstStyleBuild.item.textFields[0] &&
+            firstStyleBuild.item.textFields[0].sample === job.text)
+            ? firstStyleBuild
+            : Mogrt.buildStyleMogrt(selStyle, { appPath: premiereAppPath, text: job.text });
+          if (!cueBuild || !cueBuild.ok || !cueBuild.path) {
+            throw new Error((cueBuild && cueBuild.error) || ('Failed building styled caption ' + (ci + 1)));
+          }
+          cuePath = cueBuild.path;
+        }
 
         setProgress(5 + (ci / jobs.length) * 94,
           'placing ' + (ci + 1) + '/' + jobs.length + ' on ' + prep.trackName + '…');
 
         var res = await Premiere.applyMogrtCue({
-          path: sel.path,
+          path: cuePath,
           trackIndex: prep.trackIndex,
           audioTrackIndex: 0,
           start: job.start,
           end: job.end,
           text: job.text,
           texts: job.texts,
+          textPrebaked: !!selStyle,
           paramName: paramName,
           paramNames: paramNames,
           paramIndex: paramIdx,
@@ -1237,12 +1293,16 @@ var Animate = (function () {
       logLine('! MOGRT apply failed: ' + errMsg, 'err');
       return { ok: false, error: errMsg };
     } finally {
+      if (typeof Mogrt !== 'undefined' && Mogrt.clearCache) Mogrt.clearCache();
       setBusy(false);
     }
   }
 
   async function autoRunAfterTranscribe() {
     var out = {};
+    if (cfg && (cfg.autoApply || cfg.autoStyleOnTranscribe)) {
+      ensureScanned();
+    }
     var mode = resolvedMode();
     if (mode === 'style') {
       if (cfg && cfg.autoStyleOnTranscribe && selectedStyle()) {
@@ -1323,7 +1383,12 @@ var Animate = (function () {
         setStatus('Refreshed (' + library.length + ' preset' + (library.length === 1 ? '' : 's') + ').', 'dim');
       });
     }
-    if (ui.search) ui.search.addEventListener('input', renderGrid);
+    if (ui.search) {
+      ui.search.addEventListener('input', function () {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(renderGrid, 90);
+      });
+    }
 
     if (ui.catSelect) {
       ui.catSelect.addEventListener('change', function () {
@@ -1407,7 +1472,13 @@ var Animate = (function () {
         var v = Math.min(92, Math.max(8, Math.round(Number(ui.posY.value) || 82)));
         cfg.positionY = v;
         cfg.position = v < 36 ? 'upper' : (v <= 64 ? 'middle' : 'lower');
-        syncControls();
+        syncRange(ui.posY);
+        if (ui.posYVal) ui.posYVal.textContent = v + '%';
+        if (ui.posSeg) {
+          ui.posSeg.querySelectorAll('button').forEach(function (btn) {
+            btn.classList.toggle('active', btn.getAttribute('data-pos') === cfg.position);
+          });
+        }
       });
       ui.posY.addEventListener('change', save);
     }
@@ -1487,7 +1558,6 @@ var Animate = (function () {
       emptyTitle: $('mogrtEmptyTitle'),
       emptyBody: $('mogrtEmptyBody'),
       styleActionBox: $('styleActionBox'),
-      mogrtApplyBox: $('mogrtApplyBox'),
       paramField: $('mogrtParamField'),
       autoApplyWrap: $('mogrtAutoApplyWrap'),
       applyHint: $('mogrtApplyHint'),
@@ -1517,23 +1587,22 @@ var Animate = (function () {
 
     bind();
     syncControls();
-    rescan();
+    refreshCues();
   }
 
   return {
     init: init,
     setVisible: function (visible) {
-      if (visible) refreshCues();
+      if (visible) {
+        ensureScanned();
+        refreshCues();
+      } else {
+        unloadAllVideos();
+      }
     },
     refreshCues: refreshCues,
     applyToRecent: applyToRecent,
     sendStyleToProject: sendStyleToProject,
-    autoRunAfterTranscribe: autoRunAfterTranscribe,
-    isAutoApplyEnabled: function () {
-      if (!cfg) return false;
-      var mode = resolvedMode();
-      return mode === 'style' ? !!cfg.autoStyleOnTranscribe : (mode === 'mogrt' && !!cfg.autoApply);
-    },
-    isRunning: function () { return running; }
+    autoRunAfterTranscribe: autoRunAfterTranscribe
   };
 })();

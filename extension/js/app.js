@@ -17,7 +17,7 @@
   var activeRun = null;
   var cs = new CSInterface();
 
-  var VERSION = '1.13.0';
+  var VERSION = '1.13.1';
 
   var TABS = ['transcribe', 'animate', 'editor', 'settings'];
 
@@ -52,14 +52,19 @@
     return requested === 'auto' ? text + ' — auto' : text;
   }
 
+  var MAX_LOG_LINES = 400;
+
   function syncLogButtons() {
     if (!els.log) return;
-    var empty = els.log.textContent.trim() === '';
+    var empty = els.log.childElementCount === 0;
     if (els.clearLogBtn) els.clearLogBtn.disabled = empty;
     if (els.copyLogBtn) els.copyLogBtn.disabled = empty;
   }
 
   function log(msg, cls) {
+    if (els.log.childElementCount >= MAX_LOG_LINES && els.log.firstElementChild) {
+      els.log.removeChild(els.log.firstElementChild);
+    }
     var line = document.createElement('div');
     if (cls) line.className = 'l-' + cls;
     line.textContent = msg;
@@ -200,7 +205,7 @@
     settings.chunkSec = clamp(els.chunkSec.value, 10, 120);
     settings.concurrency = clamp(els.concurrency.value, 1, 6);
     settings.silenceDb = clamp(els.silenceDb.value, -60, -10);
-    if (els.cornerRadius) settings.cornerRadius = clamp(els.cornerRadius.value, 0, 16);
+    if (els.roundedCorners) settings.roundedCorners = els.roundedCorners.checked;
     if (els.uiMotion) settings.uiMotion = els.uiMotion.checked;
     if (els.liquidGlass) settings.liquidGlass = els.liquidGlass.checked;
   }
@@ -244,7 +249,7 @@
     els.apiKey.value = settings.apiKey || '';
     setKeyBadge(!!settings.apiKey);
 
-    settings.cornerRadius = Theme.applyRadius(settings.cornerRadius);
+    settings.roundedCorners = Theme.applyRounded(settings.roundedCorners);
     settings.uiMotion = Theme.applyMotion(settings.uiMotion);
     settings.liquidGlass = Theme.applyGlass(settings.liquidGlass);
   }
@@ -556,8 +561,6 @@
           return;
         }
 
-        var wavFile = Audio.tempFile('slice_' + ('000' + i).slice(-4) + '.wav');
-        Audio.writeWavFile(pcm, wavFile);
         progress(5 + (completed / chunkCount) * 90, label + ' — transcribing…');
 
         /* Measure where speech actually is before the model's phrase times are
@@ -567,105 +570,105 @@
           ? Audio.speechSegments(pcm, { db: settings.silenceDb })
           : null;
 
-        try {
-          var res = await Gemini.transcribe({
-            apiKey: settings.apiKey,
-            model: settings.model,
-            wavBuffer: NODE.fs.readFileSync(wavFile),
-            duration: t1 - t0,
-            language: settings.language,
+        var wavBuf = Audio.wavBuffer(pcm);
+        pcm = null;
+
+        var res = await Gemini.transcribe({
+          apiKey: settings.apiKey,
+          model: settings.model,
+          wavBuffer: wavBuf,
+          duration: t1 - t0,
+          language: settings.language,
+          wordsPerLine: settings.wordsPerLine,
+          maxLines: settings.maxLines,
+          token: token,
+          onRetry: function (attempt, msg) {
+            log('… ' + label + ' retry ' + attempt + ': ' + msg, 'warn');
+          },
+          onNote: function (msg) {
+            log('! ' + label + ' ' + msg, 'warn');
+          }
+        });
+        wavBuf = null;
+
+        if (token.cancelled) return;
+
+        if (res.usage && res.usage.totalTokenCount) tokens += res.usage.totalTokenCount;
+
+        var modelCues = res.cues;
+        var transcript = (res.transcript || '').trim();
+        var fromTranscript = false;
+
+        /* Dedicated *-transcribe models normally return a timestamp for every
+           word. If that request fails they fall back to plain text, which the
+           waveform timing below still turns into cues. */
+        if (!modelCues.length && transcript) {
+          fromTranscript = true;
+          modelCues = [{ start: 0, end: t1 - t0, text: transcript }];
+        }
+
+        if (!modelCues.length) {
+          if ((res.raw || '').trim()) {
+            log('! ' + fmtTime(t0) + '–' + fmtTime(t1) +
+                '  model replied without cue JSON: ' + res.raw.trim().slice(0, 120), 'warn');
+          } else {
+            log('· ' + fmtTime(t0) + '–' + fmtTime(t1) + '  no speech', 'dim');
+          }
+          return;
+        }
+
+        var local;
+        var fromWords = false;
+        if (res.words && res.words.length) {
+          /* Transcribe models report when every word is spoken. Those times
+             are exact, so captions are built straight from them — including
+             the blank space while the speaker is silent. */
+          fromWords = true;
+          local = Srt.cuesFromWords(res.words, {
             wordsPerLine: settings.wordsPerLine,
             maxLines: settings.maxLines,
-            token: token,
-            onRetry: function (attempt, msg) {
-              log('… ' + label + ' retry ' + attempt + ': ' + msg, 'warn');
-            },
-            onNote: function (msg) {
-              log('! ' + label + ' ' + msg, 'warn');
-            }
+            duration: t1 - t0,
+            holdMs: 80,
+            splitGapMs: 280
           });
-
-          if (token.cancelled) return;
-
-          if (res.usage && res.usage.totalTokenCount) tokens += res.usage.totalTokenCount;
-
-          var modelCues = res.cues;
-          var transcript = (res.transcript || '').trim();
-          var fromTranscript = false;
-
-          /* Dedicated *-transcribe models normally return a timestamp for every
-             word. If that request fails they fall back to plain text, which the
-             waveform timing below still turns into cues. */
-          if (!modelCues.length && transcript) {
-            fromTranscript = true;
-            modelCues = [{ start: 0, end: t1 - t0, text: transcript }];
-          }
-
-          if (!modelCues.length) {
-            if ((res.raw || '').trim()) {
-              log('! ' + fmtTime(t0) + '–' + fmtTime(t1) +
-                  '  model replied without cue JSON: ' + res.raw.trim().slice(0, 120), 'warn');
-            } else {
-              log('· ' + fmtTime(t0) + '–' + fmtTime(t1) + '  no speech', 'dim');
-            }
-            return;
-          }
-
-          var local;
-          var fromWords = false;
-          if (res.words && res.words.length) {
-            /* Transcribe models report when every word is spoken. Those times
-               are exact, so captions are built straight from them — including
-               the blank space while the speaker is silent. */
-            fromWords = true;
-            local = Srt.cuesFromWords(res.words, {
-              wordsPerLine: settings.wordsPerLine,
-              maxLines: settings.maxLines,
-              duration: t1 - t0,
-              holdMs: 80,
-              splitGapMs: 280
-            });
-          } else if (speech) {
-            local = Srt.alignCues(modelCues, speech, {
-              wordsPerLine: settings.wordsPerLine,
-              maxLines: settings.maxLines,
-              duration: t1 - t0,
-              holdMs: 120,
-              splitGapMs: 420
-            });
-          } else if (fromTranscript) {
-            local = Srt.alignCues(modelCues, [{ start: 0, end: t1 - t0 }], {
-              wordsPerLine: settings.wordsPerLine,
-              maxLines: settings.maxLines,
-              duration: t1 - t0,
-              holdMs: 120,
-              splitGapMs: 420
-            });
-          } else {
-            local = Srt.normalize(modelCues, {
-              wordsPerLine: settings.wordsPerLine,
-              maxLines: settings.maxLines,
-              totalDuration: t1 - t0
-            });
-          }
-
-          for (var k = 0; k < local.length; k++) {
-            collected.push({
-              start: t0 + local[k].start,
-              end: t0 + local[k].end,
-              text: local[k].text
-            });
-          }
-
-          var first = (res.firstByteMs === null || res.firstByteMs === undefined)
-            ? ''
-            : ' · first byte ' + (res.firstByteMs / 1000).toFixed(1) + 's';
-          log('· ' + fmtTime(t0) + '–' + fmtTime(t1) + '  ' + local.length + ' cue(s)' +
-              (fromWords ? ' · word timings' : fromTranscript ? ' · text timed from waveform' : '') + '  (' +
-              ((res.ms || 0) / 1000).toFixed(1) + 's' + first + ')', 'ok');
-        } finally {
-          Audio.cleanup(wavFile);
+        } else if (speech) {
+          local = Srt.alignCues(modelCues, speech, {
+            wordsPerLine: settings.wordsPerLine,
+            maxLines: settings.maxLines,
+            duration: t1 - t0,
+            holdMs: 120,
+            splitGapMs: 420
+          });
+        } else if (fromTranscript) {
+          local = Srt.alignCues(modelCues, [{ start: 0, end: t1 - t0 }], {
+            wordsPerLine: settings.wordsPerLine,
+            maxLines: settings.maxLines,
+            duration: t1 - t0,
+            holdMs: 120,
+            splitGapMs: 420
+          });
+        } else {
+          local = Srt.normalize(modelCues, {
+            wordsPerLine: settings.wordsPerLine,
+            maxLines: settings.maxLines,
+            totalDuration: t1 - t0
+          });
         }
+
+        for (var k = 0; k < local.length; k++) {
+          collected.push({
+            start: t0 + local[k].start,
+            end: t0 + local[k].end,
+            text: local[k].text
+          });
+        }
+
+        var first = (res.firstByteMs === null || res.firstByteMs === undefined)
+          ? ''
+          : ' · first byte ' + (res.firstByteMs / 1000).toFixed(1) + 's';
+        log('· ' + fmtTime(t0) + '–' + fmtTime(t1) + '  ' + local.length + ' cue(s)' +
+            (fromWords ? ' · word timings' : fromTranscript ? ' · text timed from waveform' : '') + '  (' +
+            ((res.ms || 0) / 1000).toFixed(1) + 's' + first + ')', 'ok');
       }
 
       var queue = [];
@@ -822,8 +825,6 @@
       log('Done. ' + finalCues.length + ' cues' + (tokens ? ' · ' + tokens.toLocaleString() + ' tokens' : '') +
           ' · ' + seconds + 's', 'ok');
 
-      els.lastSrtPath = srtPath;
-
       /* Hand this run to the Editor tab. The cues are also mirrored to disk by
          the editor, so fixing text later does not need another transcription. */
       if (typeof Editor !== 'undefined') {
@@ -834,9 +835,6 @@
         if (Animate.refreshCues) Animate.refreshCues();
         if (Animate.autoRunAfterTranscribe) {
           await Animate.autoRunAfterTranscribe();
-        } else if (Animate.isAutoApplyEnabled && Animate.isAutoApplyEnabled()) {
-          log('Applying selected MOGRT to recent captions…', 'dim');
-          await Animate.applyToRecent({ silent: false });
         }
       }
     } catch (e) {
@@ -844,7 +842,6 @@
         progress(0, 'stopped');
         log('');
         log('Stopped by you. Partial captions were discarded — nothing was written or imported.', 'warn');
-        els.lastSrtPath = '';
       } else {
         progress(0, 'failed');
         log('');
@@ -1491,6 +1488,52 @@
     }
   }
 
+  function isTextEditable(el) {
+    if (!el || !el.tagName) return false;
+    var tag = el.tagName.toUpperCase();
+    if (tag === 'TEXTAREA') return !el.readOnly && !el.disabled;
+    if (tag !== 'INPUT') return !!el.isContentEditable;
+    var type = String(el.type || 'text').toLowerCase();
+    return ['text', 'password', 'search', 'number', 'url', 'email', 'tel'].indexOf(type) >= 0 &&
+      !el.readOnly && !el.disabled;
+  }
+
+  function bindUiGuards() {
+    document.addEventListener('contextmenu', function (e) {
+      if (!isTextEditable(e && e.target)) e.preventDefault();
+    }, true);
+
+    document.addEventListener('keydown', function (e) {
+      var mod = e && (e.ctrlKey || e.metaKey) && !e.altKey;
+      var k = String((e && e.key) || '').toLowerCase();
+      if (mod && k === 'a') {
+        var active = document.activeElement;
+        if (!isTextEditable(active) && !isTextEditable(e.target)) {
+          e.preventDefault();
+          try {
+            var sel = window.getSelection && window.getSelection();
+            if (sel && sel.removeAllRanges) sel.removeAllRanges();
+          } catch (eSel) {}
+        }
+        return;
+      }
+      if (mod && (k === 'p' || k === 'u')) {
+        e.preventDefault();
+        return;
+      }
+      if (e.key !== 'Escape') return;
+      if (running) {
+        e.preventDefault();
+        requestCancel();
+        return;
+      }
+      if (themeEditorOpen) {
+        e.preventDefault();
+        closeThemeEditor();
+      }
+    }, true);
+  }
+
   function bind() {
     bindCollapsibleCards();
 
@@ -1506,24 +1549,9 @@
     els.customThemeDelete.addEventListener('click', deleteCustomTheme);
     bindThemeEditor();
 
-    if (els.cornerRadius) {
-      els.cornerRadius.addEventListener('input', function () {
-        Theme.applyRadius(els.cornerRadius.value);
-      });
-      els.cornerRadius.addEventListener('change', function () {
-        Theme.applyRadius(els.cornerRadius.value);
-        persist();
-      });
-    }
-    if (els.cornerSharpBtn) {
-      els.cornerSharpBtn.addEventListener('click', function () {
-        Theme.applyRadius(0);
-        persist();
-      });
-    }
-    if (els.cornerRoundedBtn) {
-      els.cornerRoundedBtn.addEventListener('click', function () {
-        Theme.applyRadius(10);
+    if (els.roundedCorners) {
+      els.roundedCorners.addEventListener('change', function () {
+        Theme.applyRounded(els.roundedCorners.checked);
         persist();
       });
     }
@@ -1614,19 +1642,6 @@
     });
     els.checkUpdates.addEventListener('click', manualUpdateCheck);
 
-    document.addEventListener('keydown', function (e) {
-      if (e.key !== 'Escape') return;
-      if (running) {
-        e.preventDefault();
-        requestCancel();
-        return;
-      }
-      if (themeEditorOpen) {
-        e.preventDefault();
-        closeThemeEditor();
-      }
-    });
-
     document.querySelectorAll('[data-ext="link"]').forEach(function (a) {
       a.addEventListener('click', function (e) {
         e.preventDefault();
@@ -1640,13 +1655,13 @@
   }
 
   function boot() {
-    ['apiCard', 'apiHead', 'apiKey', 'toggleKey', 'saveKey', 'testKey', 'clearKey', 'keyBadge', 'model',
-     'language', 'scope', 'wordsPerLine', 'maxLines', 'captionShape',
+    ['apiKey', 'toggleKey', 'saveKey', 'testKey', 'clearKey', 'keyBadge', 'model',
+     'language', 'wordsPerLine', 'maxLines', 'captionShape',
      'snapPauses', 'autoImport', 'mainScroll',
      'generate', 'cancel', 'bar', 'progressTrack', 'progressLabel', 'log', 'copyLogBtn', 'clearLogBtn', 'ffmpegPath', 'browseFfmpeg', 'chunkSec',
      'concurrency', 'silenceDb', 'openDataFolder', 'openCaptionFolder', 'version', 'hostInfo',
-     'refreshModels', 'testModel', 'themes', 'themeName',
-     'cornerRadius', 'cornerRadiusVal', 'cornerSharpBtn', 'cornerRoundedBtn', 'uiMotion', 'liquidGlass',
+     'refreshModels', 'testModel', 'themes',
+     'roundedCorners', 'uiMotion', 'liquidGlass',
      'customThemeBtn', 'themeEditor', 'themeEditorClose', 'customThemeName',
      'customBg', 'customBgHex', 'customPanel', 'customPanelHex',
      'customAccent', 'customAccentHex', 'customText', 'customTextHex',
@@ -1658,6 +1673,7 @@
 
     els.version.textContent = 'openCaption v' + VERSION;
     els.hostInfo.textContent = 'OPENCAPTION V' + VERSION;
+    bindUiGuards();
 
     if (!Config.ok) {
       els.generate.disabled = true;
@@ -1690,9 +1706,7 @@
     if (!settings.apiKey) {
       log('No API key yet — open the Settings tab, paste one in "01 · API access" and press Save key.', 'warn');
     }
-    if (!Audio.resolve(settings.ffmpegPath)) {
-      log('! ffmpeg was not found. Reinstall, or pick an ffmpeg.exe under Settings > Advanced.', 'warn');
-    }
+    if (Audio.cleanupTempDir) Audio.cleanupTempDir();
 
     initUpdater();
 

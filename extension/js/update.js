@@ -686,9 +686,11 @@ var Updater = (function () {
 
       function deletePart(done) {
         var called = false;
+        var timer = 0;
         function once() {
           if (called) return;
           called = true;
+          if (timer) { clearTimeout(timer); timer = 0; }
           rmrf(part);
           done();
         }
@@ -697,7 +699,7 @@ var Updater = (function () {
         // for the write stream to close before removing the partial file.
         out.once('close', once);
         try { out.destroy(); } catch (e) { once(); }
-        setTimeout(once, 1000);
+        if (!called) timer = setTimeout(once, 1000);
       }
 
       function fail(err) {
@@ -761,6 +763,11 @@ var Updater = (function () {
         responseTimeout: options.responseTimeout || NET.connectTimeout,
         token: options.token
       }).then(function (handle) {
+        if (settled || (options.token && options.token.canceled)) {
+          try { if (handle.res) handle.res.destroy(); } catch (e0) {}
+          try { if (handle.req) handle.req.destroy(); } catch (e1) {}
+          return;
+        }
         res = handle.res;
         req = handle.req;
 
@@ -1133,8 +1140,8 @@ var Updater = (function () {
     var entries = [];
     try { entries = fs.readdirSync(UPDATES_DIR); } catch (e) { return; }
     for (var i = 0; i < entries.length; i++) {
-      if (!/^\d+\.\d+\.\d+$/.test(entries[i])) continue;
-      if (entries[i] === keepVersion) continue;
+      if (!parseVersion(entries[i])) continue;
+      if (keepVersion && entries[i] === keepVersion) continue;
       rmrf(path.join(UPDATES_DIR, entries[i]));
     }
   }

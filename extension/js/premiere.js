@@ -128,7 +128,6 @@ var Premiere = (function () {
     },
     applyMogrtCue: function (opts) {
       return call('applyMogrtCue', opts);
-    },
-    revealInExplorer: function (p) { return call('revealInExplorer', { path: p }); }
+    }
   };
 })();

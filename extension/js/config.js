@@ -66,7 +66,7 @@ var Config = (function () {
     silenceDb: -35,
     theme: 'mono',
     customTheme: null,
-    cornerRadius: 0,
+    roundedCorners: false,
     uiMotion: true,
     liquidGlass: false,
     mogrt: MOGRT_DEFAULTS,
@@ -218,8 +218,10 @@ var Config = (function () {
     merged.maxLines = Math.min(20, Math.max(1,
       Math.round(Number(merged.maxLines) || DEFAULTS.maxLines)));
 
-    var rad = Number(merged.cornerRadius);
-    merged.cornerRadius = isFinite(rad) ? Math.min(16, Math.max(0, Math.round(rad))) : 0;
+    if (raw.roundedCorners === undefined && raw.cornerRadius !== undefined) {
+      merged.roundedCorners = Number(raw.cornerRadius) > 0;
+    }
+    merged.roundedCorners = !!merged.roundedCorners;
     merged.uiMotion = merged.uiMotion !== false;
     merged.liquidGlass = !!merged.liquidGlass;
 

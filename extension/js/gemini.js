@@ -84,12 +84,34 @@ var Gemini = (function () {
       var entry = activeRequests[i];
       if (token && entry.token !== token) continue;
       activeRequests.splice(i, 1);
-      try { entry.req.destroy(cancelError()); } catch (e) { /* already closed */ }
+      if (entry.abort) {
+        try { entry.abort(); } catch (e0) {}
+      } else if (entry.req) {
+        try { entry.req.destroy(cancelError()); } catch (e) { /* already closed */ }
+      }
     }
   }
 
-  function delay(ms) {
-    return new Promise(function (resolve) { setTimeout(resolve, ms); });
+  function delay(ms, token) {
+    if (token && token.cancelled) return Promise.reject(cancelError());
+    return new Promise(function (resolve, reject) {
+      var entry = null;
+      var timer = setTimeout(function () {
+        var at = activeRequests.indexOf(entry);
+        if (at >= 0) activeRequests.splice(at, 1);
+        resolve();
+      }, ms);
+      if (token) {
+        entry = {
+          token: token,
+          abort: function () {
+            clearTimeout(timer);
+            reject(cancelError());
+          }
+        };
+        activeRequests.push(entry);
+      }
+    });
   }
 
   function headersFor(apiKey, payload, accept) {
@@ -103,9 +125,20 @@ var Gemini = (function () {
 
   /* ------------------------------------------------------------- plain GET/POST */
 
-  function request(apiKey, method, urlPath, body) {
+  function request(apiKey, method, urlPath, body, token) {
+    if (token && token.cancelled) return Promise.reject(cancelError());
     return new Promise(function (resolve, reject) {
       var payload = body ? Buffer.from(JSON.stringify(body), 'utf8') : null;
+      var settled = false;
+      var entry = null;
+
+      function finish(fn, value) {
+        if (settled) return;
+        settled = true;
+        var at = activeRequests.indexOf(entry);
+        if (at >= 0) activeRequests.splice(at, 1);
+        fn(value);
+      }
 
       var req = https.request(connectionOptions(urlPath, method, headersFor(apiKey, payload)),
         function (res) {
@@ -113,12 +146,22 @@ var Gemini = (function () {
           res.on('data', function (d) { chunks.push(d); });
           res.on('end', function () {
             var text = Buffer.concat(chunks).toString('utf8');
+            chunks = null;
             var json = null;
             try { json = text ? JSON.parse(text) : {}; } catch (e) { json = null; }
-            resolve({ status: res.statusCode, json: json, text: text });
+            finish(resolve, { status: res.statusCode, json: json, text: json ? '' : text });
           });
-          res.on('error', reject);
+          res.on('aborted', function () {
+            finish(reject, new Error('Connection closed before response finished.'));
+          });
+          res.on('close', function () {
+            if (!res.complete) finish(reject, new Error('Connection closed unexpectedly.'));
+          });
+          res.on('error', function (e) { finish(reject, e); });
         });
+
+      entry = { token: token || null, req: req };
+      activeRequests.push(entry);
 
       abortSlowConnect(req);
       req.on('timeout', function () {
@@ -126,9 +169,12 @@ var Gemini = (function () {
       });
       req.on('error', function (e) {
         noteNetworkError(e);
-        reject(e);
+        finish(reject, e);
       });
-      if (payload) req.write(payload);
+      if (payload) {
+        req.write(payload);
+        payload = null;
+      }
       req.end();
     });
   }
@@ -136,6 +182,7 @@ var Gemini = (function () {
   /* ------------------------------------------------------------ SSE streaming */
 
   function streamGenerate(apiKey, model, body, onBytes, token) {
+    if (token && token.cancelled) return Promise.reject(cancelError());
     return new Promise(function (resolve, reject) {
       var payload = Buffer.from(JSON.stringify(body), 'utf8');
       var urlPath = '/' + API_VERSION + '/models/' + encodeURIComponent(model) +
@@ -164,9 +211,16 @@ var Gemini = (function () {
           res.on('data', function (d) { chunks.push(d); });
           res.on('end', function () {
             var text = Buffer.concat(chunks).toString('utf8');
+            chunks = null;
             var json = null;
             try { json = text ? JSON.parse(text) : {}; } catch (e) { json = null; }
-            finish(resolve, { status: res.statusCode, json: json, text: text, headersMs: headersMs });
+            finish(resolve, { status: res.statusCode, json: json, text: json ? '' : text, headersMs: headersMs });
+          });
+          res.on('aborted', function () {
+            finish(reject, new Error('Connection closed before error response finished.'));
+          });
+          res.on('close', function () {
+            if (!res.complete) finish(reject, new Error('Connection closed unexpectedly.'));
           });
           res.on('error', function (e) { finish(reject, e); });
           return;
@@ -184,10 +238,11 @@ var Gemini = (function () {
           if (firstByteMs === null) firstByteMs = Date.now() - startedAt;
 
           buffer += chunk;
+          var pos = 0;
           var idx;
-          while ((idx = buffer.indexOf('\n')) >= 0) {
-            var line = buffer.slice(0, idx).trim();
-            buffer = buffer.slice(idx + 1);
+          while ((idx = buffer.indexOf('\n', pos)) >= 0) {
+            var line = buffer.slice(pos, idx).trim();
+            pos = idx + 1;
             if (line.indexOf('data:') !== 0) continue;
 
             var payloadText = line.slice(5).trim();
@@ -228,16 +283,31 @@ var Gemini = (function () {
             }
             if (obj.usageMetadata) usage = obj.usageMetadata;
           }
+          if (pos > 0) buffer = buffer.slice(pos);
         });
 
         res.on('end', function () {
+          buffer = '';
           finish(resolve, {
             status: 200, streamed: true, text: text, transcript: transcript,
             finish: finishReason, usage: usage,
             blocked: blocked, headersMs: headersMs, firstByteMs: firstByteMs
           });
         });
-        res.on('error', function (e) { finish(reject, e); });
+        res.on('aborted', function () {
+          buffer = '';
+          finish(reject, new Error('Stream aborted before completion.'));
+        });
+        res.on('close', function () {
+          if (!res.complete) {
+            buffer = '';
+            finish(reject, new Error('Stream closed unexpectedly.'));
+          }
+        });
+        res.on('error', function (e) {
+          buffer = '';
+          finish(reject, e);
+        });
       });
 
       entry = { token: token || null, req: req };
@@ -267,6 +337,7 @@ var Gemini = (function () {
         finish(reject, e);
       });
       req.write(payload);
+      payload = null;
       req.end();
     });
   }
@@ -385,8 +456,9 @@ var Gemini = (function () {
       var res = null;
       for (var attempt = 1; attempt <= 3; attempt++) {
         try {
-          res = await request(opts.apiKey, 'POST', '/' + API_VERSION + '/interactions', body);
+          res = await request(opts.apiKey, 'POST', '/' + API_VERSION + '/interactions', body, opts.token);
         } catch (e) {
+          if (e && e.cancelled) throw e;
           throw new Error('Network error: ' + e.message);
         }
 
@@ -397,7 +469,7 @@ var Gemini = (function () {
            plain-transcription fallback draws on the same quota. */
         if (res.status === 429 && /per day|daily/i.test(lastError)) break;
         if (RETRY_STATUS[res.status] && attempt < 3) {
-          await delay(1200 * attempt);
+          await delay(1200 * attempt, opts.token);
           continue;
         }
         break;
@@ -890,6 +962,8 @@ var Gemini = (function () {
     var token = opts.token || null;
     var modelKey = String(opts.model || '').toLowerCase();
 
+    var audioBase64 = opts.wavBuffer.toString('base64');
+
     /* Dedicated transcribe models can return the exact time of every word;
        use that instead of estimating word positions from the waveform. If the
        endpoint is unavailable, fall through to plain transcription. */
@@ -898,7 +972,8 @@ var Gemini = (function () {
         var worded = await transcribeWords({
           apiKey: opts.apiKey,
           model: opts.model,
-          wavBuffer: opts.wavBuffer
+          wavBuffer: opts.wavBuffer,
+          token: token
         });
         if (token && token.cancelled) throw cancelError();
         return {
@@ -928,19 +1003,16 @@ var Gemini = (function () {
     // Dedicated *-transcribe models reject responseSchema; don't ask twice.
     var jsonMode = !/transcribe/.test(modelKey);
 
-    function makeBody(config, useJson) {
-      return buildBody({
-        audioBase64: opts.wavBuffer.toString('base64'),
-        duration: opts.duration,
-        language: opts.language,
-        wordsPerLine: opts.wordsPerLine,
-        maxLines: opts.maxLines,
-        thinking: config,
-        jsonMode: useJson !== false
-      });
-    }
-
-    var body = makeBody(thinking, jsonMode);
+    var body = buildBody({
+      audioBase64: audioBase64,
+      duration: opts.duration,
+      language: opts.language,
+      wordsPerLine: opts.wordsPerLine,
+      maxLines: opts.maxLines,
+      thinking: thinking,
+      jsonMode: jsonMode
+    });
+    audioBase64 = '';
 
     var attempt = 0;
     var maxAttempts = 4;
@@ -973,7 +1045,7 @@ var Gemini = (function () {
         }
 
         if (opts.onRetry) opts.onRetry(attempt, lastError);
-        await delay(1000 * Math.pow(2, attempt - 1));
+        await delay(1000 * Math.pow(2, attempt - 1), token);
         continue;
       }
 
@@ -992,11 +1064,12 @@ var Gemini = (function () {
 
         var text = res.text || '';
         var transcript = res.transcript || '';
+        var cues = parseCues(text);
         return {
-          cues: parseCues(text),
+          cues: cues,
           transcript: transcript,
           usage: res.usage || null,
-          raw: text,
+          raw: cues.length ? '' : text.slice(0, 240),
           finish: finish,
           ms: Date.now() - startedAll,
           headersMs: res.headersMs,
@@ -1013,7 +1086,8 @@ var Gemini = (function () {
       if (res.status === 400 && jsonMode &&
           /json mode|responsemimetype|responseschema|json output/i.test(lastError)) {
         jsonMode = false;
-        body = makeBody(thinking, jsonMode);
+        delete body.generationConfig.responseMimeType;
+        delete body.generationConfig.responseSchema;
         if (opts.onRetry) opts.onRetry(attempt, 'this model has no JSON mode; retrying with plain output');
         continue;
       }
@@ -1024,21 +1098,21 @@ var Gemini = (function () {
         if (planIndex + 1 < plans.length) {
           planIndex++;
           thinking = plans[planIndex];
-          body = makeBody(thinking, jsonMode);
+          body.generationConfig.thinkingConfig = thinking;
           if (opts.onRetry) opts.onRetry(attempt, 'the API rejected one thinking setting; trying another shape');
           continue;
         }
         thinkingChoice[modelKey] = false;
         thinking = null;
         plans = [];
-        body = makeBody(null, jsonMode);
+        delete body.generationConfig.thinkingConfig;
         if (opts.onRetry) opts.onRetry(attempt, 'this model does not accept a thinking setting; retrying without it');
         continue;
       }
 
       if (!RETRY_STATUS[res.status] || attempt >= maxAttempts) throw new Error(lastError);
       if (opts.onRetry) opts.onRetry(attempt, lastError);
-      await delay(1500 * Math.pow(2, attempt - 1));
+      await delay(1500 * Math.pow(2, attempt - 1), token);
     }
 
     throw new Error(lastError || 'Transcription failed.');

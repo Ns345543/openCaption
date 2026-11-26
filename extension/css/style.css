@@ -1,6 +1,6 @@
 /* ============================================================
    openCaption — panel UI
-   HUD styling, six palettes + custom themes, adjustable corners, 430px CEP panel.
+   HUD styling, 8 palettes + custom themes, rounded corners & Liquid Glass, 430px CEP panel.
    ============================================================ */
 
 /* ---------- corner radii ---------- */
@@ -50,7 +50,6 @@
   --glass-rim: rgba(255, 255, 255, 0.26);
   --glass-rim-low: rgba(255, 255, 255, 0.07);
   --glass-glow: rgba(255, 255, 255, 0.05);
-  --glass-sheen: rgba(255, 255, 255, 0.08);
   --glass-shadow: 0 12px 32px rgba(0, 0, 0, 0.50), 0 2px 8px rgba(0, 0, 0, 0.35);
 }
 
@@ -91,7 +90,7 @@ html[data-theme="premiere"] .theme-name,
 html[data-theme="premiere"] .theme-add:hover,
 html[data-theme="premiere"] .theme-add.active,
 html[data-theme="premiere"] .num,
-html[data-theme="premiere"] .api-card .card-head .chev,
+html[data-theme="premiere"] .card.collapsible .card-head .chev,
 html[data-theme="premiere"] .ghost-btn:hover,
 html[data-theme="premiere"] .linkbtn,
 html[data-theme="premiere"] .btn:hover,
@@ -230,7 +229,6 @@ html[data-theme="midnight"] {
   --glass-rim: rgba(255, 255, 255, 0.30);
   --glass-rim-low: rgba(255, 255, 255, 0.08);
   --glass-glow: rgba(140, 170, 255, 0.09);
-  --glass-sheen: rgba(255, 255, 255, 0.10);
   --glass-shadow: 0 16px 40px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.40);
 }
 
@@ -268,7 +266,6 @@ html[data-theme="paper"] {
   --glass-rim: rgba(255, 255, 255, 0.95);
   --glass-rim-low: rgba(255, 255, 255, 0.35);
   --glass-glow: rgba(255, 255, 255, 0.30);
-  --glass-sheen: rgba(255, 255, 255, 0.38);
   --glass-shadow: 0 12px 32px rgba(21, 19, 15, 0.12), 0 2px 8px rgba(21, 19, 15, 0.06);
 }
 
@@ -306,7 +303,6 @@ html[data-theme="pond"] {
   --glass-rim: rgba(255, 255, 255, 0.95);
   --glass-rim-low: rgba(255, 255, 255, 0.35);
   --glass-glow: rgba(255, 255, 255, 0.35);
-  --glass-sheen: rgba(255, 255, 255, 0.38);
   --glass-shadow: 0 12px 36px rgba(28, 40, 96, 0.14), 0 2px 8px rgba(28, 40, 96, 0.08);
 }
 
@@ -395,12 +391,19 @@ html, body {
   font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
   font-size: 12px;
   -webkit-font-smoothing: antialiased;
+  -webkit-user-select: none;
+  user-select: none;
   overflow: hidden;
 }
 
 body { transition: background-color .22s, color .22s; }
 
 .app { position: relative; display: flex; flex-direction: column; height: 100%; z-index: 1; }
+
+input, textarea, [contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
 
 ::selection { background: var(--accent); color: var(--on-accent); }
 
@@ -468,7 +471,6 @@ button, input, select, summary { font-family: inherit; }
   justify-content: center;
   flex: 0 0 auto;
   clip-path: polygon(0 0, 100% 0, 100% 66%, 66% 100%, 0 100%);
-  transition: background-color .22s;
 }
 
 .logo-core {
@@ -881,7 +883,6 @@ button, input, select, summary { font-family: inherit; }
   padding: 12px;
   margin-bottom: 12px;
   box-shadow: 4px 4px 0 var(--shadow);
-  transition: background-color .22s, border-color .18s, box-shadow .18s;
 }
 
 .card:hover { border-color: var(--line-strong); }
@@ -894,7 +895,6 @@ button, input, select, summary { font-family: inherit; }
   width: 30px;
   height: 2px;
   background: var(--accent);
-  transition: background-color .22s;
 }
 
 .card::after {
@@ -908,7 +908,6 @@ button, input, select, summary { font-family: inherit; }
   clip-path: polygon(100% 0, 100% 100%, 0 100%);
   opacity: 0.8;
   pointer-events: none;
-  transition: background-color .22s;
 }
 
 .card-head {
@@ -1611,8 +1610,6 @@ select {
   box-shadow: 0 0 0 1px var(--accent);
 }
 
-.cue-text::placeholder { color: var(--placeholder); }
-
 /* ---------- AI spelling suggestion ---------- */
 
 .cue-suggest {
@@ -1775,7 +1772,7 @@ select {
 .log-clear:disabled:hover,
 .log-copy:disabled:hover { color: var(--accent); }
 
-.log-wrap .log { margin-bottom: 0; border-top: 0; }
+.log-wrap .log { border-top: 0; }
 
 .log {
   background: var(--log-bg);
@@ -1789,7 +1786,6 @@ select {
   max-height: 200px;
   min-height: 64px;
   overflow-y: auto;
-  margin-bottom: 12px;
   white-space: pre-wrap;
   word-break: break-word;
   transition: background-color .22s, border-color .22s, color .22s;
@@ -1987,20 +1983,6 @@ html[data-corners="rounded"] .card::after {
   margin: 12px 0 11px;
 }
 
-.corner-field { margin-bottom: 10px; }
-.corner-field .field-head { flex-wrap: wrap; gap: 4px 8px; }
-
-.corner-controls {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.corner-quick {
-  display: inline-flex;
-  gap: 4px;
-}
-
 .pill-btn {
   padding: 2px 7px;
   background: var(--bg-soft);
@@ -2018,13 +2000,6 @@ html[data-corners="rounded"] .card::after {
   color: var(--text);
   border-color: var(--line-strong);
   background: var(--fill);
-}
-
-.pill-btn.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
-  font-weight: 700;
 }
 
 .range-val {
@@ -2096,46 +2071,42 @@ input[type="range"].range:disabled {
   cursor: default;
 }
 
-.range-scale {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 2px;
-  font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 7.5px;
-  letter-spacing: 0.8px;
-  color: var(--muted-2);
-}
-
 .appear-switches { margin-top: 8px; }
 
 /* ---------- panel UI animations ---------- */
 
 @keyframes panel-in {
   from { opacity: 0; transform: translateY(5px); }
-  to   { opacity: 1; transform: translateY(0); }
+  to   { opacity: 1; transform: none; }
 }
 
 @keyframes card-rise {
   from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
+  to   { opacity: 1; transform: none; }
 }
 
 @keyframes menu-pop {
   from { opacity: 0; transform: scale(0.95) translateY(-4px); }
-  to   { opacity: 1; transform: scale(1) translateY(0); }
+  to   { opacity: 1; transform: none; }
 }
 
 @keyframes log-in {
   from { opacity: 0; transform: translateX(-4px); }
-  to   { opacity: 1; transform: translateX(0); }
+  to   { opacity: 1; transform: none; }
 }
 
-html:not([data-motion="off"]) .tabpanel:not(.hidden) {
-  animation: panel-in .2s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
+/* Animate children (never .tabpanel itself) with backwards fill so no ancestor
+   or card retains a composite transform layer that breaks backdrop-filter blur. */
 html:not([data-motion="off"]) .tabpanel:not(.hidden) > .card {
-  animation: card-rise .24s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: card-rise .24s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+html:not([data-motion="off"]) .tabpanel:not(.hidden) > .run-row,
+html:not([data-motion="off"]) .tabpanel:not(.hidden) > .progress-wrap,
+html:not([data-motion="off"]) .tabpanel:not(.hidden) > .log-wrap,
+html:not([data-motion="off"]) .tabpanel:not(.hidden) > .adv,
+html:not([data-motion="off"]) .tabpanel:not(.hidden) > .foot {
+  animation: panel-in .2s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 html:not([data-motion="off"]) .tabpanel:not(.hidden) > .card:nth-child(2) { animation-delay: 35ms; }
@@ -2144,22 +2115,22 @@ html:not([data-motion="off"]) .tabpanel:not(.hidden) > .card:nth-child(4) { anim
 
 html:not([data-motion="off"]) .menu:not(.hidden) {
   transform-origin: top right;
-  animation: menu-pop .15s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: menu-pop .15s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 html:not([data-motion="off"]) .theme-editor:not(.hidden),
 html:not([data-motion="off"]) .replacer:not(.hidden),
 html:not([data-motion="off"]) .cue-suggest {
-  animation: card-rise .18s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: card-rise .18s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 html:not([data-motion="off"]) .adv[open] > *:not(summary),
 html:not([data-motion="off"]) .card.collapsible:not(.collapsed) > :not(.card-head) {
-  animation: card-rise .18s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: card-rise .18s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 html:not([data-motion="off"]) .log > div {
-  animation: log-in .14s ease-out both;
+  animation: log-in .14s ease-out backwards;
 }
 
 html:not([data-motion="off"]) .switch .knob {
@@ -2184,8 +2155,13 @@ html[data-motion="off"] .log:empty::after {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tabpanel:not(.hidden),
   .tabpanel:not(.hidden) > .card,
+  .tabpanel:not(.hidden) > .run-row,
+  .tabpanel:not(.hidden) > .progress-wrap,
+  .tabpanel:not(.hidden) > .log-wrap,
+  .tabpanel:not(.hidden) > .adv,
+  .tabpanel:not(.hidden) > .foot,
+  .card.collapsible:not(.collapsed) > :not(.card-head),
   .menu:not(.hidden),
   .theme-editor:not(.hidden),
   .replacer:not(.hidden),
@@ -2216,8 +2192,6 @@ html[data-motion="off"] .log:empty::after {
   border: 1px solid var(--accent);
   box-shadow: 0 0 0 1px var(--bg-soft);
 }
-
-.mogrt-selected.hidden { display: none; }
 
 .mogrt-selected-main {
   display: flex;
@@ -2520,7 +2494,6 @@ html[data-motion="off"] .log:empty::after {
   gap: 5px;
   margin-top: 2px;
 }
-.cat-new-row.hidden { display: none; }
 .cat-new-row input {
   flex: 1 1 100px;
   min-width: 0;
@@ -2530,7 +2503,6 @@ html[data-motion="off"] .log:empty::after {
 }
 
 .mogrt-filters { margin-bottom: 9px; }
-.mogrt-filters.hidden { display: none; }
 
 .filter-bar {
   display: flex;
@@ -2608,13 +2580,6 @@ html[data-motion="off"] .log:empty::after {
   background: var(--input-bg);
   border: 1px solid var(--accent);
   border-radius: var(--r-ctrl);
-}
-.style-action-box.hidden,
-.mogrt-apply-box.hidden,
-.style-font-meta.hidden,
-.field.hidden,
-.switch.hidden {
-  display: none;
 }
 
 .style-font-meta {
@@ -2743,7 +2708,6 @@ html[data-ambient-grid="active"] .backdrop {
 }
 
 .ambient-tweaks { margin-top: 8px; }
-.ambient-tweaks.hidden { display: none; }
 
 .ambient-sliders .field { margin-bottom: 0; }
 .ambient-sliders .field.is-disabled { opacity: 0.48; }
@@ -2845,7 +2809,6 @@ input[type="range"].range:focus-visible {
 @media (max-width: 340px) {
   .cue-head { flex-wrap: wrap; }
   .cue input.cue-t { flex: 1 1 68px; width: auto; min-width: 0; }
-  .corner-controls { flex-wrap: wrap; gap: 5px; }
   .mogrt-selected-main { flex-direction: column; align-items: stretch; gap: 7px; }
   .mogrt-thumb-wrap { width: 100%; height: 64px; }
   .cat-new-row { flex-wrap: wrap; }

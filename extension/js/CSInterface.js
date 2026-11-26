@@ -21,25 +21,6 @@ CSInterface.prototype.getSystemPath = function (pathType) {
   return window.__adobe_cep__.getSystemPath(pathType);
 };
 
-CSInterface.prototype.getExtensionID = function () {
-  if (typeof window.__adobe_cep__ === 'undefined') return '';
-  return window.__adobe_cep__.getExtensionId();
-};
-
-CSInterface.prototype.getHostEnvironment = function () {
-  if (typeof window.__adobe_cep__ === 'undefined') return null;
-  try {
-    return JSON.parse(window.__adobe_cep__.getHostEnvironment());
-  } catch (e) {
-    return null;
-  }
-};
-
-CSInterface.prototype.getOSInformation = function () {
-  if (typeof window.__adobe_cep__ === 'undefined') return '';
-  return window.__adobe_cep__.getOSInformation();
-};
-
 /**
  * Opens an http(s) URL in the system browser. CEP 12 removed or moved some of
  * the older entry points, and window.open() inside a panel can silently do

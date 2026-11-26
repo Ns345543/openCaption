@@ -38,8 +38,8 @@ To remove it later, run  uninstall.bat  in this folder.
 INSTALL FROM A .ZXP
 -------------------
 If you already use a CEP extension manager (Anastasiy's Extension Manager,
-ZXP/UXP installer, or Adobe ExManCmd), install openCaption.zxp with it
-instead of running install.bat.
+ZXP/UXP installer, or Adobe ExManCmd), download openCaption.zxp from the
+release page and install it instead of running install.bat.
 
 openCaption is a CEP panel, not a UXP plugin. If an installer says
 "manifest.json not found", it is a UXP-only tool: use install.bat, or a CEP

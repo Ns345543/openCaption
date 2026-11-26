@@ -26,13 +26,12 @@ var Theme = (function () {
 
   var STORE_KEY = 'openCaption.theme';
   var CUSTOM_KEY = 'openCaption.customTheme';
-  var RADIUS_KEY = 'openCaption.cornerRadius';
+  var CORNERS_KEY = 'openCaption.roundedCorners';
+  var LEGACY_RADIUS_KEY = 'openCaption.cornerRadius';
   var MOTION_KEY = 'openCaption.uiMotion';
   var GLASS_KEY = 'openCaption.liquidGlass';
   var DEFAULT = 'mono';
-  var DEFAULT_RADIUS = 0;
-  var MIN_RADIUS = 0;
-  var MAX_RADIUS = 16;
+  var ROUNDED_RADIUS = 10;
   var ids = THEMES.map(function (t) { return t.id; });
 
   var custom = null;
@@ -131,7 +130,6 @@ var Theme = (function () {
       '--glass-rim': light ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.26)',
       '--glass-rim-low': light ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.08)',
       '--glass-glow': rgba(c.accent, light ? 0.10 : 0.12),
-      '--glass-sheen': light ? 'rgba(255,255,255,0.38)' : 'rgba(255,255,255,0.09)',
       '--glass-shadow': light ? '0 10px 30px rgba(28,40,96,0.12), 0 2px 8px rgba(28,40,96,0.06)' : '0 12px 32px rgba(0,0,0,0.48), 0 2px 8px rgba(0,0,0,0.32)'
     };
   }
@@ -213,40 +211,16 @@ var Theme = (function () {
     return id;
   }
 
-  function clampRadius(value) {
-    var n = Math.round(Number(value));
-    if (!isFinite(n)) return DEFAULT_RADIUS;
-    return Math.min(MAX_RADIUS, Math.max(MIN_RADIUS, n));
-  }
-
-  function applyRadius(value) {
-    var r = clampRadius(value);
+  function applyRounded(enabled) {
+    var on = !!enabled;
     var root = document.documentElement;
-    root.style.setProperty('--r-base', r + 'px');
-    root.setAttribute('data-corners', r > 0 ? 'rounded' : 'sharp');
-    try { localStorage.setItem(RADIUS_KEY, String(r)); } catch (e) { /* private mode */ }
+    root.style.setProperty('--r-base', (on ? ROUNDED_RADIUS : 0) + 'px');
+    root.setAttribute('data-corners', on ? 'rounded' : 'sharp');
+    try { localStorage.setItem(CORNERS_KEY, on ? '1' : '0'); } catch (e) { /* private mode */ }
 
-    var slider = document.getElementById('cornerRadius');
-    if (slider) {
-      if (Number(slider.value) !== r) slider.value = String(r);
-      slider.style.setProperty('--pct', ((r - MIN_RADIUS) / (MAX_RADIUS - MIN_RADIUS) * 100) + '%');
-    }
-
-    var valEl = document.getElementById('cornerRadiusVal');
-    if (valEl) {
-      valEl.textContent = r === 0 ? '0px · Sharp' : r + 'px · Rounded';
-    }
-
-    var sharpBtn = document.getElementById('cornerSharpBtn');
-    var roundBtn = document.getElementById('cornerRoundedBtn');
-    if (sharpBtn) sharpBtn.classList.toggle('active', r === 0);
-    if (roundBtn) roundBtn.classList.toggle('active', r > 0);
-    return r;
-  }
-
-  function currentRadius() {
-    var raw = document.documentElement.style.getPropertyValue('--r-base');
-    return clampRadius(parseFloat(raw));
+    var toggle = document.getElementById('roundedCorners');
+    if (toggle) toggle.checked = on;
+    return on;
   }
 
   function applyMotion(enabled) {
@@ -258,10 +232,6 @@ var Theme = (function () {
     return on;
   }
 
-  function currentMotion() {
-    return document.documentElement.getAttribute('data-motion') !== 'off';
-  }
-
   function applyGlass(enabled) {
     var on = !!enabled;
     document.documentElement.setAttribute('data-glass', on ? 'on' : 'off');
@@ -269,10 +239,6 @@ var Theme = (function () {
     var toggle = document.getElementById('liquidGlass');
     if (toggle) toggle.checked = on;
     return on;
-  }
-
-  function currentGlass() {
-    return document.documentElement.getAttribute('data-glass') === 'on';
   }
 
   /* ------------------------------------------------------------- rail */
@@ -311,12 +277,6 @@ var Theme = (function () {
     apply(current());
   }
 
-  /** Rebuilds the rail after the custom palette changed. */
-  function refresh() {
-    render();
-    return current();
-  }
-
   /** Builds the swatch rail. onChange receives the new theme id. */
   function mount(container, onChange) {
     mounted = container;
@@ -327,43 +287,42 @@ var Theme = (function () {
   /* ------------------------------------------------------------ pre-paint */
 
   var saved = DEFAULT;
-  var savedRadius = DEFAULT_RADIUS;
+  var savedRounded = false;
   var savedMotion = true;
   var savedGlass = false;
   try {
     saved = localStorage.getItem(STORE_KEY) || DEFAULT;
     var rawCustom = localStorage.getItem(CUSTOM_KEY);
     if (rawCustom) setCustom(JSON.parse(rawCustom), false);
-    var rawRadius = localStorage.getItem(RADIUS_KEY);
-    if (rawRadius !== null) savedRadius = clampRadius(rawRadius);
+    var rawRounded = localStorage.getItem(CORNERS_KEY);
+    if (rawRounded !== null) {
+      savedRounded = (rawRounded === '1' || rawRounded === 'true');
+    } else {
+      var legacyRad = localStorage.getItem(LEGACY_RADIUS_KEY);
+      if (legacyRad !== null) savedRounded = Number(legacyRad) > 0;
+    }
     var rawMotion = localStorage.getItem(MOTION_KEY);
     if (rawMotion === '0' || rawMotion === 'false') savedMotion = false;
     var rawGlass = localStorage.getItem(GLASS_KEY);
     if (rawGlass === '1' || rawGlass === 'true') savedGlass = true;
   } catch (e) {
     saved = DEFAULT;
-    savedRadius = DEFAULT_RADIUS;
+    savedRounded = false;
     savedMotion = true;
     savedGlass = false;
   }
   apply(saved);
-  applyRadius(savedRadius);
+  applyRounded(savedRounded);
   applyMotion(savedMotion);
   applyGlass(savedGlass);
 
   return {
-    THEMES: THEMES,
-    ids: ids,
     apply: apply,
     current: current,
-    applyRadius: applyRadius,
-    currentRadius: currentRadius,
+    applyRounded: applyRounded,
     applyMotion: applyMotion,
-    currentMotion: currentMotion,
     applyGlass: applyGlass,
-    currentGlass: currentGlass,
     mount: mount,
-    refresh: refresh,
     setCustom: setCustom,
     getCustom: getCustom,
     parseHex: parseHex,

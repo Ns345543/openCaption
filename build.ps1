@@ -1,9 +1,9 @@
-<#
+﻿<#
   build.ps1 - packages openCaption for other people to install.
 
   Output (in .\dist):
     openCaption.zxp        signed CEP extension (any ZXP installer)
-    openCaption.zip        install.bat + extension + the .zxp
+    openCaption.zip        install.bat + extension (Windows installer bundle)
     SHA256SUMS.txt         checksums for both
 
   The package names never change: release tags and titles carry the version,
@@ -254,7 +254,6 @@ Copy-Item -LiteralPath (Join-Path $InstDir 'README-FIRST.txt') -Destination $bun
 Copy-Item -LiteralPath (Join-Path $Root 'LICENSE') -Destination $bundleDir
 Copy-Item -LiteralPath (Join-Path $Root 'THIRD-PARTY-NOTICES.txt') -Destination $bundleDir
 Copy-Item -LiteralPath $Stage -Destination (Join-Path $bundleDir 'extension') -Recurse
-if ($zxpPath) { Copy-Item -LiteralPath $zxpPath -Destination $bundleDir }
 
 # Batch files must use CRLF or cmd.exe can misread labels.
 foreach ($bat in Get-ChildItem -LiteralPath $bundleDir -Filter '*.bat') {

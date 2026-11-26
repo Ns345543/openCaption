@@ -156,6 +156,20 @@ var Mogrt = (function () {
     }
   }
 
+  function writeThumbCache(buf, filePath, stat, ext) {
+    if (!buf || !buf.length) return '';
+    try {
+      ensureDirs();
+      var cachePath = path.join(CACHE_DIR, cacheKeyFor(filePath, stat) + (ext || '.png'));
+      if (!fs.existsSync(cachePath)) {
+        fs.writeFileSync(cachePath, buf);
+      }
+      return toFileUrl(cachePath);
+    } catch (e) {
+      return '';
+    }
+  }
+
   /** Reads metadata, thumbnail, and optional preview video from a .mogrt file. */
   function inspect(filePath, opts) {
     opts = opts || {};
@@ -192,11 +206,14 @@ var Mogrt = (function () {
 
     var thumbUrl = '';
     var thumbEntry = entries['thumb.png'] || entries['thumb_en_US.png'];
-    if (thumbEntry) {
+    if (thumbEntry && opts.cacheThumb !== false) {
       try {
-        var thumbBuf = readZipEntry(buf, thumbEntry);
-        if (thumbBuf && thumbBuf.length) {
-          thumbUrl = 'data:image/png;base64,' + thumbBuf.toString('base64');
+        var thumbCachePath = path.join(CACHE_DIR, cacheKeyFor(filePath, stat) + '.png');
+        if (fs.existsSync(thumbCachePath)) {
+          thumbUrl = toFileUrl(thumbCachePath);
+        } else {
+          var thumbBuf = readZipEntry(buf, thumbEntry);
+          thumbUrl = writeThumbCache(thumbBuf, filePath, stat, '.png');
         }
       } catch (eThumb) { thumbUrl = ''; }
     }
@@ -225,36 +242,35 @@ var Mogrt = (function () {
 
   /* --------------------------------------------------- .prtextstyle tools */
 
-  var PNG_BYTES = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-  var PNG_END_BYTES = [0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82];
-  var JPG_BYTES = [0xff, 0xd8, 0xff];
-  var JPG_END_BYTES = [0xff, 0xd9];
+  var PNG_SIG = typeof Buffer !== 'undefined' ? Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) : null;
+  var PNG_END = typeof Buffer !== 'undefined' ? Buffer.from([0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82]) : null;
+  var JPG_SIG = typeof Buffer !== 'undefined' ? Buffer.from([0xff, 0xd8, 0xff]) : null;
+  var JPG_END = typeof Buffer !== 'undefined' ? Buffer.from([0xff, 0xd9]) : null;
   var PREVIEW_EXTS = ['.preview.png', '.preview.jpg', '.preview.jpeg', '.preview.webp', '.png', '.jpg', '.jpeg', '.webp'];
 
-  function mimeForExt(ext) {
-    var e = String(ext || '').toLowerCase();
-    if (e === '.jpg' || e === '.jpeg') return 'image/jpeg';
-    if (e === '.webp') return 'image/webp';
-    return 'image/png';
-  }
-
-  function extractEmbeddedImage(buf) {
-    if (!buf || !buf.length || typeof Buffer === 'undefined') return '';
+  function extractEmbeddedImage(buf, filePath, stat) {
+    if (!buf || !buf.length || !PNG_SIG) return '';
     try {
-      var pStart = buf.indexOf(Buffer.from(PNG_BYTES));
+      var key = cacheKeyFor(filePath, stat);
+      var pngCached = path.join(CACHE_DIR, key + '.png');
+      if (fs.existsSync(pngCached)) return toFileUrl(pngCached);
+      var jpgCached = path.join(CACHE_DIR, key + '.jpg');
+      if (fs.existsSync(jpgCached)) return toFileUrl(jpgCached);
+
+      var pStart = buf.indexOf(PNG_SIG);
       if (pStart >= 0) {
-        var pEnd = buf.indexOf(Buffer.from(PNG_END_BYTES), pStart + 8);
+        var pEnd = buf.indexOf(PNG_END, pStart + 8);
         if (pEnd > pStart && (pEnd + 8 - pStart) <= 5 * 1024 * 1024) {
-          return 'data:image/png;base64,' + buf.slice(pStart, pEnd + 8).toString('base64');
+          return writeThumbCache(buf.slice(pStart, pEnd + 8), filePath, stat, '.png');
         }
       }
-      var jStart = buf.indexOf(Buffer.from(JPG_BYTES));
+      var jStart = buf.indexOf(JPG_SIG);
       if (jStart >= 0) {
         var maxEnd = Math.min(buf.length, jStart + 4 * 1024 * 1024);
         var slice = buf.slice(jStart, maxEnd);
-        var jEnd = slice.lastIndexOf(Buffer.from(JPG_END_BYTES));
+        var jEnd = slice.lastIndexOf(JPG_END);
         if (jEnd > 16) {
-          return 'data:image/jpeg;base64,' + slice.slice(0, jEnd + 2).toString('base64');
+          return writeThumbCache(slice.slice(0, jEnd + 2), filePath, stat, '.jpg');
         }
       }
     } catch (eImg) { /* non-fatal */ }
@@ -269,8 +285,7 @@ var Mogrt = (function () {
         if (fs.existsSync(candidate)) {
           var st = fs.statSync(candidate);
           if (st.isFile() && st.size > 0 && st.size <= 5 * 1024 * 1024) {
-            var ext = path.extname(candidate);
-            return 'data:' + mimeForExt(ext) + ';base64,' + fs.readFileSync(candidate).toString('base64');
+            return toFileUrl(candidate) + '?v=' + Math.round(st.mtimeMs || 0);
           }
         }
       } catch (eRead) {}
@@ -301,6 +316,15 @@ var Mogrt = (function () {
         }
       } catch (eCopy) {}
     }
+  }
+
+  function encodeXmlEntities(str) {
+    return String(str === undefined || str === null ? '' : str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
   }
 
   function decodeBasicXmlEntities(str) {
@@ -345,7 +369,7 @@ var Mogrt = (function () {
   }
 
   function parseFlatBufferStyle(rawBuf) {
-    var parsed = { fillHex: '', strokeHex: '', strokeWidth: 0, alignment: 2, fontSize: 0 };
+    var parsed = { fillHex: '', strokeHex: '', strokeWidth: 0, alignment: 2 };
     try {
       if (!rawBuf || rawBuf.length < 64 || rawBuf.readUInt32LE(8) !== 0x11223344) return parsed;
       var rootRel = rawBuf.readUInt32LE(12);
@@ -525,7 +549,7 @@ var Mogrt = (function () {
     }
     if (!thumbUrl && rawBuf) {
       try {
-        thumbUrl = extractEmbeddedImage(rawBuf);
+        thumbUrl = extractEmbeddedImage(rawBuf, filePath, stat);
       } catch (eBin) { thumbUrl = ''; }
     }
     var xmlMeta = extractXmlStyleMeta(rawBuf);
@@ -636,7 +660,12 @@ var Mogrt = (function () {
     return Buffer.concat(localParts.concat([centralBuf, eocd]));
   }
 
+  var cachedBaseMogrtPath = '';
+
   function findBasicTitleMogrt(appPathHint) {
+    if (!appPathHint && cachedBaseMogrtPath && fs.existsSync(cachedBaseMogrtPath)) {
+      return cachedBaseMogrtPath;
+    }
     var candidates = [];
     if (appPathHint) {
       candidates.push(path.join(appPathHint, 'Essential Graphics', 'Basic Title.mogrt'));
@@ -674,7 +703,10 @@ var Mogrt = (function () {
     }
     for (var ci = 0; ci < candidates.length; ci++) {
       try {
-        if (fs.existsSync(candidates[ci]) && fs.statSync(candidates[ci]).isFile()) return candidates[ci];
+        if (fs.existsSync(candidates[ci]) && fs.statSync(candidates[ci]).isFile()) {
+          if (!appPathHint) cachedBaseMogrtPath = candidates[ci];
+          return candidates[ci];
+        }
       } catch (eCk) {}
     }
     return '';
@@ -684,15 +716,95 @@ var Mogrt = (function () {
     return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-' + hex.slice(12, 16) + '-' + hex.slice(16, 20) + '-' + hex.slice(20, 32);
   }
 
-  function patchPrgraphicForStyle(prgraphicBuf, styleItem) {
-    var innerMap = listZipEntries(prgraphicBuf);
+  function deriveGuid(seed) {
+    var hex = crypto.createHash('sha1').update(String(seed)).digest('hex');
+    var v4 = hex.slice(0, 12) + '4' + hex.slice(13, 16) + '8' + hex.slice(17, 32);
+    return formatGuidFromSha1(v4);
+  }
+
+  var baseTemplateCache = null;
+
+  function clearCache() {
+    baseTemplateCache = null;
+  }
+
+  function loadBaseTemplate(basePath) {
+    var st = fs.statSync(basePath);
+    var cacheKey = path.resolve(basePath).toLowerCase() + '|' + st.size + '|' + Math.round(st.mtimeMs || 0);
+    if (baseTemplateCache && baseTemplateCache.key === cacheKey) {
+      return baseTemplateCache;
+    }
+
+    var baseBuf = fs.readFileSync(basePath);
+    var entries = listZipEntries(baseBuf);
+    var def = entries['definition.json'] ? JSON.parse(readZipEntry(baseBuf, entries['definition.json']).toString('utf8')) : null;
+    var prgraphics = {};
+    var thumbs = {};
+    var entryNames = Object.keys(entries);
+
+    for (var i = 0; i < entryNames.length; i++) {
+      var ename = entryNames[i];
+      var edata = readZipEntry(baseBuf, entries[ename]);
+      if (/^project(?:_[^.]+)?\.prgraphic$/i.test(ename)) {
+        var innerMap = listZipEntries(edata);
+        var innerParts = [];
+        var innerNames = Object.keys(innerMap);
+        for (var ni = 0; ni < innerNames.length; ni++) {
+          var inName = innerNames[ni];
+          var raw = readZipEntry(edata, innerMap[inName]);
+          var wasGzip = (raw.length >= 2 && raw[0] === 0x1f && raw[1] === 0x8b);
+          var xml = (wasGzip ? zlib.gunzipSync(raw) : raw).toString('utf8');
+          innerParts.push({ name: inName, wasGzip: wasGzip, xml: xml });
+        }
+        prgraphics[ename] = innerParts;
+      } else if (ename === 'thumb.png' || ename === 'thumb_en_US.png') {
+        thumbs[ename] = edata;
+      }
+    }
+
+    baseTemplateCache = {
+      key: cacheKey,
+      def: def,
+      prgraphics: prgraphics,
+      thumbs: thumbs
+    };
+    return baseTemplateCache;
+  }
+
+  function collectPrgraphicInstanceUids(xml, uidSet) {
+    var re = /<(Sequence|MasterClip|RootProjectItem)\b[^>]*\bObjectU(?:ID|Ref)="([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"|<ClipID>([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})<\/ClipID>/gi;
+    var m;
+    while ((m = re.exec(xml)) !== null) {
+      var id = m[2] || m[3];
+      if (id && id !== '00000000-0000-0000-0000-000000000000') uidSet[id.toLowerCase()] = id;
+    }
+  }
+
+  function replaceAllUids(str, uidMap) {
+    var keys = Object.keys(uidMap);
+    if (!keys.length) return str;
+    var mapLower = {};
+    for (var i = 0; i < keys.length; i++) {
+      mapLower[keys[i].toLowerCase()] = uidMap[keys[i]];
+    }
+    return str.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, function (match) {
+      var mapped = mapLower[match.toLowerCase()];
+      return mapped || match;
+    });
+  }
+
+  function patchPrgraphicParts(innerParts, styleItem, cueText, uidMap) {
     var outInner = [];
-    var names = Object.keys(innerMap);
-    for (var ni = 0; ni < names.length; ni++) {
-      var entryName = names[ni];
-      var raw = readZipEntry(prgraphicBuf, innerMap[entryName]);
-      var wasGzip = (raw.length >= 2 && raw[0] === 0x1f && raw[1] === 0x8b);
-      var xml = (wasGzip ? zlib.gunzipSync(raw) : raw).toString('utf8');
+    // Premiere / AE mTextParam expects CR paragraph separators for multi-line titles.
+    var mTextValue = String(cueText || '').replace(/\r\n?/g, '\r').replace(/\n/g, '\r');
+    if (!mTextValue.length) mTextValue = ' ';
+    var instanceLabel = encodeXmlEntities(
+      String(cueText || 'Caption').replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 64) || 'Caption'
+    );
+
+    for (var ni = 0; ni < innerParts.length; ni++) {
+      var part = innerParts[ni];
+      var xml = replaceAllUids(part.xml, uidMap);
 
       xml = xml.replace(/(<ArbVideoComponentParam[\s\S]*?<StartKeyframeValue\b[^>]*BinaryHash=")([^"]*)("[^>]*>)([\s\S]*?)(<\/StartKeyframeValue>)/,
         function (_, p1, oldHash, p3, b64, p5) {
@@ -717,7 +829,7 @@ var Mogrt = (function () {
             if (ss.mStrokeColor) ss.mStrokeColor.mParamValues = [[0, hexToRgbInt(strokeHex, 0x000000)]];
             ss.mStrokeWidth = { mParamValues: [[0, strokeWidth]] };
           }
-          if (ss.mText !== undefined) ss.mText = 'Caption';
+          ss.mText = mTextValue;
           if (isFinite(Number(styleItem.alignment))) tp.mAlignment = Number(styleItem.alignment);
 
           var u16 = Buffer.from(JSON.stringify(data), 'utf16le');
@@ -731,17 +843,19 @@ var Mogrt = (function () {
         }
       );
 
+      xml = xml.replace(/<InstanceName>[^<]*<\/InstanceName>/, '<InstanceName>' + instanceLabel + '</InstanceName>');
+
       // Center internal Text Position accurately so extension Upper/Middle/Lower alignment stays exact.
       xml = xml.replace(/(<Name>Position<\/Name>[\s\S]*?<StartKeyframe>[^,]*,)([^<]*)(<\/StartKeyframe>)/,
         '$10.5,0.5,0,0,0,0,0,0,0,5,4,0,0,0,0$3');
 
       var xmlBuf = Buffer.from(xml, 'utf8');
-      outInner.push({ name: entryName, data: wasGzip ? zlib.gzipSync(xmlBuf) : xmlBuf, compress: true });
+      outInner.push({ name: part.name, data: part.wasGzip ? zlib.gzipSync(xmlBuf) : xmlBuf, compress: true });
     }
     return writeZip(outInner);
   }
 
-  /** Builds a cached Premiere-native Text .mogrt styled from a .prtextstyle preset. */
+  /** Builds a cached Premiere-native Text .mogrt styled from a .prtextstyle preset with optional baked caption text. */
   function buildStyleMogrt(styleItem, opts) {
     opts = opts || {};
     ensureDirs();
@@ -753,64 +867,113 @@ var Mogrt = (function () {
       return { ok: false, error: 'Premiere built-in "Basic Title.mogrt" was not found to wrap the text style.' };
     }
 
+    var rawText = (opts.text !== undefined && opts.text !== null) ? String(opts.text) : 'Caption';
+    var cleanSnippet = rawText.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 28);
+
     try {
       var stStat = fs.statSync(styleItem.path);
       var keyRaw = [
-        'style-mogrt-v1',
+        'style-mogrt-v2',
         path.resolve(styleItem.path).toLowerCase(),
         stStat.size,
         Math.round(stStat.mtimeMs),
         styleItem.fontName || '',
         styleItem.fillHex || '',
         styleItem.strokeHex || '',
-        styleItem.strokeWidth || 0
+        styleItem.strokeWidth || 0,
+        styleItem.fontSize || 92,
+        isFinite(Number(styleItem.alignment)) ? Number(styleItem.alignment) : 2,
+        rawText
       ].join('|');
       var keyHash = crypto.createHash('sha1').update(keyRaw).digest('hex');
       var outPath = path.join(STYLE_CACHE_DIR, keyHash.slice(0, 20) + '.mogrt');
 
       if (!fs.existsSync(outPath)) {
-        var baseBuf = fs.readFileSync(basePath);
-        var entries = listZipEntries(baseBuf);
-        var outFiles = [];
-        var capsuleId = formatGuidFromSha1(keyHash);
-        var entryNames = Object.keys(entries);
+        var tpl = loadBaseTemplate(basePath);
+        if (!tpl.def) throw new Error('Missing definition.json inside base template.');
 
-        for (var i = 0; i < entryNames.length; i++) {
-          var ename = entryNames[i];
-          var edata = readZipEntry(baseBuf, entries[ename]);
-          if (ename === 'definition.json') {
-            var def = JSON.parse(edata.toString('utf8'));
-            def.capsuleID = capsuleId;
-            def.capsuleName = styleItem.name || 'Text Style';
-            def.capsuleNameLocalized = { strDB: [{ localeString: 'en_US', str: def.capsuleName }] };
-            if (Array.isArray(def.clientControls) && def.clientControls[0]) {
-              def.clientControls[0].value = { strDB: [{ localeString: 'en_US', str: 'Caption' }] };
-              def.clientControls[0].fonteditinfo = {
-                capPropFontEdit: true,
-                capPropFontFauxStyleEdit: true,
-                capPropFontSizeEdit: true,
-                fontEditValue: styleItem.fontName || '',
-                fontFSAllCapsValue: false,
-                fontFSBoldValue: /Bold/i.test(styleItem.fontName || ''),
-                fontFSItalicValue: /Italic|Oblique/i.test(styleItem.fontName || ''),
-                fontFSSmallCapsValue: false,
-                fontSizeEditValue: Number(styleItem.fontSize || 92)
-              };
-            }
-            if (styleItem.fontName) {
-              def.usedFontsLocalized = { en_US: [styleItem.fontName] };
-            }
-            outFiles.push({ name: ename, data: Buffer.from(JSON.stringify(def), 'utf8'), compress: true });
-          } else if (/^project(?:_[^.]+)?\.prgraphic$/i.test(ename)) {
-            outFiles.push({ name: ename, data: patchPrgraphicForStyle(edata, styleItem), compress: true });
-          } else if (ename === 'thumb.png' || ename === 'thumb_en_US.png') {
-            outFiles.push({ name: ename, data: edata, compress: true });
+        var outFiles = [];
+        var capsuleId = deriveGuid(keyRaw + '|capsule');
+        var def = JSON.parse(JSON.stringify(tpl.def));
+
+        var uidSet = {};
+        if (def.sourceInfoLocalized && typeof def.sourceInfoLocalized === 'object') {
+          Object.keys(def.sourceInfoLocalized).forEach(function (loc) {
+            var info = def.sourceInfoLocalized[loc];
+            if (info && info.id) uidSet[String(info.id).toLowerCase()] = String(info.id);
+          });
+        }
+        var prgNames = Object.keys(tpl.prgraphics);
+        for (var pi = 0; pi < prgNames.length; pi++) {
+          var parts = tpl.prgraphics[prgNames[pi]];
+          for (var pj = 0; pj < parts.length; pj++) {
+            collectPrgraphicInstanceUids(parts[pj].xml, uidSet);
           }
         }
+        var uidMap = {};
+        Object.keys(uidSet).forEach(function (lowerId, idx) {
+          uidMap[uidSet[lowerId]] = deriveGuid(keyRaw + '|uid|' + idx);
+        });
+
+        def.capsuleID = capsuleId;
+        def.capsuleName = (styleItem.name || 'Text Style') + (cleanSnippet ? (' · ' + cleanSnippet) : '');
+        def.capsuleNameLocalized = { strDB: [{ localeString: 'en_US', str: def.capsuleName }] };
+        if (def.sourceInfoLocalized && typeof def.sourceInfoLocalized === 'object') {
+          Object.keys(def.sourceInfoLocalized).forEach(function (loc) {
+            var info = def.sourceInfoLocalized[loc];
+            if (info && info.id && uidMap[info.id]) info.id = uidMap[info.id];
+          });
+        }
+        if (Array.isArray(def.clientControls) && def.clientControls[0]) {
+          def.clientControls[0].value = { strDB: [{ localeString: 'en_US', str: rawText }] };
+          def.clientControls[0].fonteditinfo = {
+            capPropFontEdit: true,
+            capPropFontFauxStyleEdit: true,
+            capPropFontSizeEdit: true,
+            fontEditValue: styleItem.fontName || '',
+            fontFSAllCapsValue: false,
+            fontFSBoldValue: /Bold/i.test(styleItem.fontName || ''),
+            fontFSItalicValue: /Italic|Oblique/i.test(styleItem.fontName || ''),
+            fontFSSmallCapsValue: false,
+            fontSizeEditValue: Number(styleItem.fontSize || 92)
+          };
+        }
+        if (styleItem.fontName) {
+          def.usedFontsLocalized = { en_US: [styleItem.fontName] };
+        }
+        outFiles.push({ name: 'definition.json', data: Buffer.from(JSON.stringify(def), 'utf8'), compress: true });
+
+        for (var gi = 0; gi < prgNames.length; gi++) {
+          var gn = prgNames[gi];
+          outFiles.push({
+            name: gn,
+            data: patchPrgraphicParts(tpl.prgraphics[gn], styleItem, rawText, uidMap),
+            compress: true
+          });
+        }
+        Object.keys(tpl.thumbs).forEach(function (tn) {
+          outFiles.push({ name: tn, data: tpl.thumbs[tn], compress: true });
+        });
+
         fs.writeFileSync(outPath, writeZip(outFiles));
       }
 
-      return { ok: true, path: outPath, item: inspect(outPath, { cacheVideo: false }) };
+      return {
+        ok: true,
+        path: outPath,
+        item: {
+          kind: 'mogrt',
+          path: outPath,
+          fileName: path.basename(outPath),
+          name: styleItem.name || 'Text Style',
+          authorApp: 'Premiere',
+          source: 'custom',
+          sourceWidth: 1920,
+          sourceHeight: 1080,
+          textFields: [{ index: 0, id: '3', name: 'TextLayer', sample: rawText }],
+          usedEffects: []
+        }
+      };
     } catch (eBuild) {
       return { ok: false, error: 'Could not prepare timeline template for text style: ' + eBuild.message };
     }
@@ -818,8 +981,31 @@ var Mogrt = (function () {
 
   /* ------------------------------------------------------ custom library */
 
+  function pruneStyleCache(maxFiles) {
+    var cap = maxFiles || 80;
+    try {
+      var names = fs.readdirSync(STYLE_CACHE_DIR);
+      if (!names || names.length <= cap) return;
+      var files = [];
+      for (var i = 0; i < names.length; i++) {
+        if (!/\.mogrt$/i.test(names[i])) continue;
+        var full = path.join(STYLE_CACHE_DIR, names[i]);
+        try {
+          var st = fs.statSync(full);
+          if (st.isFile()) files.push({ path: full, mtime: st.mtimeMs || 0 });
+        } catch (eStat) {}
+      }
+      if (files.length <= cap) return;
+      files.sort(function (a, b) { return b.mtime - a.mtime; });
+      for (var j = cap; j < files.length; j++) {
+        try { fs.unlinkSync(files[j].path); } catch (eDel) {}
+      }
+    } catch (ePrune) { /* ignore */ }
+  }
+
   function scanLibrary() {
     ensureDirs();
+    pruneStyleCache(80);
     var list = [];
     var files = [];
 
@@ -861,13 +1047,18 @@ var Mogrt = (function () {
       .replace(/[\\/:*?"<>|]+/g, '_')
       .trim() || 'item';
     var dest = path.join(dir, base + extWithDot);
+    var srcResolved = path.resolve(srcPath).toLowerCase();
+    var srcSize = -1;
+    var incomingBuf = null;
+    try { srcSize = fs.statSync(srcPath).size; } catch (eSz) { srcSize = -1; }
     var idx = 1;
-    while (fs.existsSync(dest) && path.resolve(srcPath).toLowerCase() !== path.resolve(dest).toLowerCase()) {
+    while (fs.existsSync(dest) && srcResolved !== path.resolve(dest).toLowerCase()) {
       try {
-        var existingBuf = fs.readFileSync(dest);
-        var incomingBuf = fs.readFileSync(srcPath);
-        if (existingBuf.length === incomingBuf.length && existingBuf.equals(incomingBuf)) {
-          break;
+        var dstStat = fs.statSync(dest);
+        if (srcSize >= 0 && dstStat.size === srcSize) {
+          if (!incomingBuf) incomingBuf = fs.readFileSync(srcPath);
+          var existingBuf = fs.readFileSync(dest);
+          if (existingBuf.equals(incomingBuf)) break;
         }
       } catch (eEq) { /* pick next name */ }
       idx++;
@@ -888,7 +1079,7 @@ var Mogrt = (function () {
 
     var parsed;
     try {
-      parsed = inspect(srcPath, { cacheVideo: false });
+      parsed = inspect(srcPath, { cacheVideo: false, cacheThumb: false });
     } catch (e) {
       return { ok: false, error: 'Could not read .mogrt template: ' + e.message };
     }
@@ -921,27 +1112,25 @@ var Mogrt = (function () {
     }
 
     ensureDirs();
+    var parsed;
     try {
-      inspectStyle(srcPath);
+      parsed = inspectStyle(srcPath);
     } catch (eInspect) {
       return { ok: false, error: 'Could not read .prtextstyle: ' + eInspect.message };
     }
 
     var dest = uniqueDestPath(STYLE_DIR, srcPath, '.prtextstyle');
     try {
-      if (path.resolve(srcPath).toLowerCase() !== path.resolve(dest).toLowerCase()) {
+      var copied = path.resolve(srcPath).toLowerCase() !== path.resolve(dest).toLowerCase();
+      if (copied) {
         fs.copyFileSync(srcPath, dest);
         copyCompanionFromSource(srcPath, dest);
+        return { ok: true, item: inspectStyle(dest) };
       }
-      return { ok: true, item: inspectStyle(dest) };
+      return { ok: true, item: parsed };
     } catch (eCopy) {
       return { ok: false, error: 'Could not copy .prtextstyle into library: ' + eCopy.message };
     }
-  }
-
-  function importAsset(srcPath) {
-    if (/\.prtextstyle$/i.test(srcPath || '')) return importStyle(srcPath);
-    return importTemplate(srcPath);
   }
 
   function attachStylePreview(stylePath, imgPath) {
@@ -986,13 +1175,15 @@ var Mogrt = (function () {
     }
     try {
       if (fs.existsSync(target)) {
-        if (inMogrt) {
-          try {
-            var stat = fs.statSync(target);
-            var cachePath = path.join(CACHE_DIR, cacheKeyFor(target, stat) + '.mp4');
-            if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
-          } catch (eCache) { /* non-fatal */ }
-        } else if (inStyle) {
+        try {
+          var stat = fs.statSync(target);
+          var key = cacheKeyFor(target, stat);
+          ['.mp4', '.png', '.jpg'].forEach(function (ext) {
+            var cPath = path.join(CACHE_DIR, key + ext);
+            if (fs.existsSync(cPath)) fs.unlinkSync(cPath);
+          });
+        } catch (eCache) { /* non-fatal */ }
+        if (inStyle) {
           clearCompanionPreviews(target);
         }
         fs.unlinkSync(target);
@@ -1012,9 +1203,9 @@ var Mogrt = (function () {
     scanLibrary: scanLibrary,
     importTemplate: importTemplate,
     importStyle: importStyle,
-    importAsset: importAsset,
     attachStylePreview: attachStylePreview,
     buildStyleMogrt: buildStyleMogrt,
+    clearCache: clearCache,
     removeCustom: removeCustom
   };
 })();

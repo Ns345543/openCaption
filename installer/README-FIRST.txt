@@ -56,15 +56,18 @@ will use.
 FIRST RUN
 ---------
 1. Window > Extensions > openCaption.
-2. On the Transcribe tab, paste your Gemini API key and press "Save key" (it
-   verifies the key too).
+2. Open the Settings tab (04), paste your Gemini API key and press "Save key"
+   (it verifies the key automatically).
 3. Open a sequence in Premiere.
-4. Press "Generate captions".
+4. On the Transcribe tab (01), press "Generate captions".
 
-The panel has four tabs: Transcribe (key, model, language, run and log), Editor
-(every cue from the last run, editable), Animate (reserved for motion presets),
-and Settings (themes, advanced audio options, folders and updates). It reopens
-on the last tab used.
+The panel has four tabs: Transcribe (model, language, range, shape, generate and
+log), Animate (import .mogrt templates & .prtextstyle presets with live previews,
+categories, and automatic timeline placement), Editor (every cue from the last
+run or an imported .srt, with AI spell-check and word cleanup), and Settings
+(API key, 8 themes + custom editor, rounded corners, Liquid Glass, interactive
+Ambient ASCII wildlife, advanced options, folders, and updates). The panel
+reopens on the last tab used.
 
 By default the panel uses whatever is selected on the timeline, else the work
 area, else the whole sequence. Captions land on a caption track, and the

@@ -2,560 +2,360 @@
   <img src="docs/branding/opencaption-icon-256.png" width="112" height="112" alt="openCaption icon">
 </p>
 
-# openCaption — auto captions for Premiere Pro (Gemini)
+<h1 align="center">openCaption</h1>
 
-A CEP panel for Premiere Pro that transcribes your timeline audio with the Google
-Gemini API and drops the result back as a real, editable caption track.
+<p align="center">
+  <strong>Fast, open-source AI captions, cue editing &amp; animated timeline titles for Adobe Premiere Pro — powered by Google Gemini.</strong>
+</p>
 
-No Media Encoder, no render, no upload of your whole sequence: the panel reads the
-timeline structure, slices audio straight out of your **original source media**
-with ffmpeg, and sends 30-second windows to Gemini.
+<p align="center">
+  <a href="https://github.com/Ns345543/openCaption/releases/latest">
+    <img src="https://img.shields.io/github/v/release/Ns345543/openCaption?style=for-the-badge&color=005cc8&label=Release" alt="Latest release">
+  </a>
+  <a href="https://github.com/Ns345543/openCaption/releases">
+    <img src="https://img.shields.io/github/downloads/Ns345543/openCaption/total?style=for-the-badge&color=1f2937&label=Downloads" alt="Total downloads">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/License-MIT-4ade80?style=for-the-badge" alt="MIT License">
+  </a>
+  <img src="https://img.shields.io/badge/Premiere%20Pro-2022%E2%80%932026-9999FF?style=for-the-badge&logo=adobepremierepro&logoColor=white" alt="Premiere Pro 2022-2026">
+  <img src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows 10/11">
+</p>
 
-**Download:** [latest release](https://github.com/Ns345543/openCaption/releases/latest)
-— Windows installer zip (recommended) or the ZXP for extension managers.
+<p align="center">
+  <a href="https://github.com/RookieEnough/Orion-Store">
+    <img src="https://raw.githubusercontent.com/RookieEnough/Orion-Store/main/assets/orion-badge.png" height="44" alt="Get on Orion Store">
+  </a>
+</p>
 
-The asset names never change, so these links always point at the newest build:
+<p align="center">
+  <a href="https://github.com/Ns345543/openCaption/releases/latest/download/openCaption.zip"><strong>Download Windows Installer (.zip)</strong></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/Ns345543/openCaption/releases/latest/download/openCaption.zxp"><strong>Download Signed Extension (.zxp)</strong></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/RookieEnough/Orion-Store">View on Orion Store</a>
+</p>
 
-- Windows: https://github.com/Ns345543/openCaption/releases/latest/download/openCaption.zip
-- ZXP: https://github.com/Ns345543/openCaption/releases/latest/download/openCaption.zxp
+---
 
+**openCaption** is a native Premiere Pro CEP panel that transcribes your sequence audio via your own Google Gemini API key, snaps every cue to the real speech waveform, lets you polish lines in a built-in subtitle editor, and automatically styles or animates captions on the timeline with **`.mogrt`** templates and **`.prtextstyle`** presets.
+
+No Media Encoder export, no full-sequence render, and no cloud video upload: the panel reads your timeline clips, extracts 30-second PCM windows straight from your **original source media** with `ffmpeg`, transcribes and aligns speech, and builds an editable Premiere caption track or animated graphics track directly on your sequence.
+
+```text
+timeline ──► clip list (ExtendScript)          paths + in/out points + timeline positions
+         ──► ffmpeg seeks into source media    30s PCM windows, timeline gaps = silence
+         ──► Gemini audio transcription        parallel requests, live cancellation
+         ──► speech-envelope word alignment    10 ms energy scan + word timestamps
+         ──► .srt & sequence.createCaptionTrack()
+         ──► Animate tab (optional auto-apply) .mogrt fields & .prtextstyle track styling
 ```
-timeline ──► clip list (ExtendScript)          paths + in/out points + positions
-         ──► ffmpeg seeks into source media    30s PCM window, gaps = silence
-         ──► Gemini audio transcription        1 request per window
-         ──► speech-envelope word alignment    captions pinned to audible speech
-         ──► .srt on disk
-         ──► sequence.createCaptionTrack()     editable caption track in Premiere
-```
 
-## Screenshots
+## Feature Showcase
 
-![The openCaption panel in Premiere Pro](docs/screenshots/01-interface.png)
+### 01 · Transcribe & Real-Time Pipeline
 
-*The Transcribe tab: caption settings, run controls and the live log.
-Hard edges, no rounded corners; the API key, themes and advanced options live in
-Settings. The screenshots below show the same controls before the tab bar was added.*
+Fast transcription, translation, Roman Hinglish output, word-level waveform sync, and per-chunk timing in one compact panel.
 
-![Caption language and transcription settings](docs/screenshots/02-caption-language.png)
+<table align="center">
+  <tr>
+    <td align="center" valign="top" width="33%">
+      <img src="docs/screenshots/01-interface.png" width="270" alt="Transcribe tab and run log"><br>
+      <sub><b>Transcribe Tab &amp; Live Log</b><br>4 tabs, collapsible cards, word-level sync &amp; automatic <code>99 openCaption</code> filing.</sub>
+    </td>
+    <td align="center" valign="top" width="33%">
+      <img src="docs/screenshots/02-caption-language.png" width="270" alt="Model, caption language and range settings"><br>
+      <sub><b>Language, Translation &amp; Shape</b><br>15+ languages, Hinglish (Roman), Auto-detect, range modes, and words/lines shaping.</sub>
+    </td>
+    <td align="center" valign="top" width="33%">
+      <img src="docs/screenshots/03-run-log.png" width="270" alt="Completed transcription log with style placement"><br>
+      <sub><b>Timeline &amp; Style Placement Log</b><br>Per-chunk timing, one-click log copy, and instant styled track confirmation.</sub>
+    </td>
+  </tr>
+</table>
 
-*Caption language is the output language: pick Spanish and any speech — Hindi,
-English, French — is translated into Spanish before the SRT is built.*
+### 02 · Animate — `.mogrt` Templates & `.prtextstyle` Auto-Apply
 
-![A finished run in the log](docs/screenshots/03-run-log.png)
+Import animated **`.mogrt`** templates (Premiere or After Effects) and native Premiere **`.prtextstyle`** presets. Preview typography or hover animations, organize presets with smart filters and custom `#tags`, and automatically place styled captions onto your timeline after transcription.
 
-*Per-chunk timing, the language pass, then the numbered caption filed in
-`99 openCaption`. The log can be copied to the clipboard in one click.*
+<table align="center">
+  <tr>
+    <td align="center" valign="top" width="50%">
+      <img src="docs/screenshots/07-animate-mogrt.png" width="310" alt="Animate tab MOGRT library and timeline placement"><br>
+      <sub><b>MOGRT Library, Filters &amp; Timeline Placement</b><br>Search &amp; smart filters (<code>MOGRTs</code>, <code>Styles</code>, <code>After Effects</code>, <code>Premiere</code>, custom tags), multi-field splitting, Upper/Middle/Lower/Default positioning, vertical height slider, case transform, auto-fit, and overlap clamping.</sub>
+    </td>
+    <td align="center" valign="top" width="50%">
+      <img src="docs/screenshots/08-animate-style.png" width="310" alt="Animate tab prtextstyle preview and auto-apply"><br>
+      <sub><b><code>.prtextstyle</code> Typographic Preview &amp; Auto-Apply</b><br>Reads font, weight, fill &amp; stroke directly from <code>.prtextstyle</code> files (or custom preview images), renders styled timeline captions automatically on Transcribe, and imports styles into <code>99 openCaption / Text Styles</code>.</sub>
+    </td>
+  </tr>
+</table>
 
-![The custom theme editor](docs/screenshots/04-themes.png)
+### 03 · Editor — Subtitle & Transcript Workbench
 
-*Build your own palette — background, panel, accent and text — with a live
-preview; it becomes an extra swatch on the theme rail in Settings.*
+Review every cue with live timecode editing, AI spell checking, bulk filler-word removal, find/replace rules, SRT import/export, and plain-text transcript export.
 
-![Advanced settings](docs/screenshots/05-advanced.png)
+<table align="center">
+  <tr>
+    <td align="center" valign="top" width="55%">
+      <img src="docs/screenshots/09-editor.png" width="310" alt="Subtitle Editor tab with AI spelling check and word remover"><br>
+      <sub><b>Subtitle Editor Tab</b><br>Inline timestamps, AI <b>Check spelling</b> (<code>Use this</code> / <code>keep mine</code> / <code>Fix all</code>), persisted <b>Remove words</b> &amp; <b>Replace words</b> rules, <code>.srt</code> / <code>.txt</code> import &amp; export, and one-click <b>Import edits</b>.</sub>
+    </td>
+    <td align="center" valign="top" width="45%">
+      <img src="docs/screenshots/06-updater.png" width="300" alt="In-panel verified GitHub auto-updater"><br>
+      <sub><b>SHA-256 Verified In-Panel Updater</b><br>Checks GitHub Releases automatically, streams downloads with retry/cancel, verifies checksums, and updates cleanly when Premiere closes.</sub>
+    </td>
+  </tr>
+</table>
 
-*Settings > Advanced: ffmpeg path, chunk length, parallel requests, speech threshold and
-the data/captions folders.*
+### 04 · Themes, Liquid Glass, Custom Palette & Ambient ASCII Canvas
 
-![The in-panel updater](docs/screenshots/06-updater.png)
+Customize every inch of the panel: **8 built-in palettes** (including dark **Midnight** and warm ivory **Pond**), custom 4-color palette editor, **Sharp → Rounded (`0–16px`) corners**, **Liquid glass cards** frosted-glass backdrop, collapsible sections across all tabs, responsive compact-width layout, and interactive character-cell **ASCII wildlife & paper airplane** animations behind your cards.
 
-*The panel checks GitHub on launch, downloads the new package, verifies its
-SHA-256 and installs it after Premiere closes.*
+<table align="center">
+  <tr>
+    <td align="center" valign="top" width="33%">
+      <img src="docs/screenshots/04-themes.png" width="270" alt="Themes, rounded corners, Liquid Glass and Custom Theme editor"><br>
+      <sub><b>Themes, Corners &amp; Liquid Glass</b><br>Midnight theme, 10px rounded corners, Liquid Glass frosted cards, and the live Custom Theme builder.</sub>
+    </td>
+    <td align="center" valign="top" width="33%">
+      <img src="docs/screenshots/10-ambient-pond.png" width="270" alt="Pond ivory theme with Liquid Glass and ASCII Koi"><br>
+      <sub><b>Pond Theme + Swimming ASCII Koi</b><br>Warm ivory palette with Liquid Glass translucency; click open canvas space to startle creatures or drop Koi food pebbles.</sub>
+    </td>
+    <td align="center" valign="top" width="33%">
+      <img src="docs/screenshots/05-advanced.png" width="270" alt="Ambient Canvas creature picker and Advanced settings"><br>
+      <sub><b>Ambient Canvas &amp; Advanced</b><br>8 interactive creatures + Paper Airplane with Movement, Creature &amp; Look tuning sliders, collapsible cards, and ffmpeg/chunk controls.</sub>
+    </td>
+  </tr>
+</table>
 
-## Interface
+---
 
-The panel is split into four tabs across the top:
+## Interface Overview
+
+The panel is organized into four clean tabs (and remembers the last tab and collapsed card state you used):
 
 | Tab | What it holds |
 |---|---|
-| **Transcribe** | Model, caption language, caption range and shape, the Generate/Stop controls and the live log. |
-| **Animate** | Reserved for animated caption styles. Not built yet. |
-| **Editor** | Every cue from the last run, with editable text and in/out times. Fix a line, then import the corrected SRT back onto the sequence at the same timecodes. |
-| **Settings** | The Gemini API key, themes and the custom palette editor, advanced audio options, the data/captions folders, and the update check. |
+| **01 · Transcribe** | Gemini model selector (`test` & `refresh`), 15+ caption/translation languages + **Hinglish (Roman)**, Caption range (`Auto` / `Sequence` / `Work area` / `Selection`), Words / line & Lines / caption, **Word-level sync**, **Build caption track**, **Generate / Stop (`Esc`)**, progress bar, and copyable live log. |
+| **02 · Animate** | Unified **`.mogrt` & `.prtextstyle` library**, live typographic/video/motion previews, search + smart/custom category filter chips, multi-field MOGRT mapping (`split` / `pair` / `single`), video track selector (`Auto empty` or `V1`–`V6`), screen position presets (`Upper` / `Middle` / `Lower` / `Default`) + vertical height slider (`8–92%`), text case (`As written` / `UPPER` / `Title Case`), auto-fit & overlap clamping, and **Auto-apply after Transcribe**. |
+| **03 · Editor** | Cue-by-cue editor for the latest run or any opened `.srt`. Includes **Check spelling** (`Use this` / `keep mine` / `Fix all`), persisted **Remove words…** & **Replace words…**, **Import SRT…**, **Save SRT**, **Export SRT…**, **Export text…** (`.txt`), and **Import edits** back onto the active sequence. |
+| **04 · Settings** | Gemini API access, **Appearance** (8 built-in palettes + custom theme builder, Corner roundness `0–16px`, Panel UI animations, **Liquid glass cards**), **Ambient canvas** (`Off`, `Butterfly`, `Airplane`, `Dragonfly`, `Crane`, `Koi`, `Jellyfish`, `Crab`, `Frog` + tuning controls & JSON Copy/Reset), **Advanced** (`ffmpeg` path, chunk length, parallel requests, speech dB, Data/Captions folders), and in-panel updater. |
 
-Hard 90° edges throughout, no rounded corners, and six palettes you can switch
-from the theme rail in **Settings**. The choice is saved with your other settings.
-Press **+** on the rail to build your own palette: pick a background, panel,
-accent and text colour, watch the live preview, then save it as an extra swatch.
-Secondary shades, borders and status colours are derived from those four inputs
-so every control stays readable. A saved custom theme is stored in
-`%APPDATA%\CaptionAI\config.json` too, and can be deleted from the same editor.
-The panel reopens on the tab you used last.
-
-| Theme | Look |
+| Built-in Theme | Look |
 |---|---|
-| Mono | black & white (default) |
-| Premiere | black workspace (#1d1d1d) with Premiere's sky blue (#005cc8) |
-| Void | violet and cyan on near-black |
-| Ember | amber on charcoal |
-| Matrix | phosphor green |
-| Paper | light paper with vermilion accents |
+| **Mono** | Pure monochrome black & white (default) |
+| **Premiere** | Premiere Pro dark workspace (`#1d1d1d`) with sky blue (`#005cc8`) accents |
+| **Void** | Violet and cyan on deep obsidian |
+| **Midnight** | ASCII dark blue (`#06070c` / `#7aa2ff`) paired with glowing Backdrop Grid |
+| **Ember** | Warm amber on charcoal |
+| **Matrix** | Phosphor terminal green |
+| **Paper** | Crisp light paper with vermilion accents |
+| **Pond** | Warm ivory light workspace (`#f6f3ec`) with cerulean blue accents — pairs cleanly with **Koi** & **Liquid Glass** |
+
+---
 
 ## Requirements
 
-| | |
+| Requirement | Details |
 |---|---|
-| Premiere Pro | 2022 or newer (built and tested against 2026) |
-| OS | Windows 10/11 |
-| ffmpeg | bundled in the installer — nothing to install |
-| Gemini API key | https://aistudio.google.com/apikey (free tier works) |
+| **Premiere Pro** | 2022 or newer (built and tested against Premiere Pro 2026) |
+| **OS** | Windows 10 / 11 |
+| **ffmpeg** | Bundled inside the release packages — nothing extra to install |
+| **Gemini API key** | Free or paid key from [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
 
-Costs are per transcription, billed to your own key. A one-hour sequence is roughly
-120 short audio requests.
+Costs are billed strictly to your own Gemini API key. A 1-hour sequence uses roughly 120 short 30-second audio requests.
 
-## Install (what your users do)
+---
 
-Two supported routes, both free and per-user (no admin rights):
+## Install
 
-**A. Windows installer (simplest)**
+Two free, per-user installation methods (no admin rights required), plus open-source catalog tracking on **Orion Store**:
 
-1. Download `openCaption.zip` and extract it.
-2. Close Premiere Pro.
-3. Run `install.bat`.
+### Option A — Windows Installer (Simplest)
 
-It copies the panel to `%APPDATA%\Adobe\CEP\extensions\com.captionai.panel`,
-enables the CEP setting Premiere needs for a self-signed panel, and leaves your
-settings alone. `uninstall.bat` reverses it; `uninstall.bat -Purge` also deletes
-the saved API key.
+1. Download **`openCaption.zip`** from the [latest release](https://github.com/Ns345543/openCaption/releases/latest) (also discoverable via **[Orion Store](https://github.com/RookieEnough/Orion-Store)**).
+2. Extract the zip and **close Premiere Pro**.
+3. Double-click **`install.bat`**.
 
-**B. ZXP (any CEP extension manager)**
+`install.bat` copies the extension to `%APPDATA%\Adobe\CEP\extensions\com.captionai.panel`, enables CEP's `PlayerDebugMode` for self-signed panels, and preserves your existing settings. Run `uninstall.bat` to remove it (`uninstall.bat -Purge` also clears your saved API key).
 
-Install `openCaption.zxp` with Anastasiy's Extension Manager, ZXPInstaller or
-Adobe `ExManCmd`. This is a **CEP** panel — a UXP-only installer will report
-`manifest.json not found`; use a CEP one instead. The .zxp is signed with a
-self-signed certificate, which CEP loads only when `PlayerDebugMode` is on, so if
-the panel does not appear afterwards, run `install.bat` once (it enables that
-setting) and restart Premiere.
+### Option B — ZXP Package (Any CEP Extension Manager)
 
-Both packages include `ffmpeg.exe`, the panel and this README's condensed
-instructions; the user only supplies a Gemini API key.
+Download **`openCaption.zxp`** and install via Anastasiy's Extension Manager, ZXPInstaller, or Adobe `ExManCmd`.
 
-> The panel was named "Caption AI" up to 1.1.4. Its internal ids are unchanged —
-> extension `com.captionai.panel` and settings in `%APPDATA%\CaptionAI` — so an
-> existing install is upgraded in place and keeps the saved key.
+> **Note:** This is a **CEP** panel (UXP-only installers will look for `manifest.json` and fail). Because the `.zxp` uses a self-signed certificate, if the panel does not appear in **Window → Extensions → openCaption**, run `install.bat` once to enable `PlayerDebugMode` and restart Premiere Pro.
 
-## Updates
+Both packages include `ffmpeg.exe`, third-party notices, and this extension bundle; you only need to add your Gemini API key in **Settings**.
 
-The panel checks GitHub for a newer release when it opens and shows an
-**update available / update now** banner:
+> Upgrades preserve your config seamlessly: internal IDs (`com.captionai.panel` and `%APPDATA%\CaptionAI`) remain compatible across all versions.
 
-- The check uses the public `releases/latest` API at most once every 6 hours and
-  caches the answer in `%APPDATA%\CaptionAI\update.json`. Offline launches stay
-  quiet; the footer also has a **check for updates** link.
-- **Update now** downloads the Windows package from the openCaption GitHub
-  release into `%APPDATA%\CaptionAI\updates\`, verifies its SHA-256 checksum,
-  extracts it into a staging folder, and starts a small helper.
-- Downloads follow GitHub's redirect to its asset CDN, use a connect deadline
-  plus a longer overall limit, and retry network errors, timeouts, HTTP 429 and
-  transient 5xx responses with jittered exponential backoff. Bytes stream to a
-  `.part` file and are only kept when the size and checksum match. If the
-  release URL stays unreachable, the updater tries GitHub's asset API; after
-  that it offers **Retry** and **Open GitHub Release**.
-- A **Cancel** button aborts a download or a retry wait immediately, removes the
-  `.part` file and leaves the installed version untouched. The banner shows
-  **Update cancelled** and offers **Update now** again for a later attempt.
-- The helper waits for Premiere Pro to close, renames the current extension to
-  a backup, moves the staged copy into
-  `%APPDATA%\Adobe\CEP\extensions\com.captionai.panel`, and relaunches Premiere.
-  If the swap fails, the backup is restored. Files are never replaced while
-  Premiere is running, and a failed download never touches the installed copy.
-- The API key and all settings live in `%APPDATA%\CaptionAI` and are untouched.
-- If the panel is installed under `Program Files`, is a developer junction, or
-  the release has no checksum, **Update now** opens the release page instead of
-  installing automatically.
+---
 
-> **First updater release:** v1.5.0 is the first version that can check for
-> updates. Users on 1.4.x must install v1.5.0 once by hand; from then on, newer
-> releases appear inside the panel.
->
-> **Updating from 1.8.0:** the 1.8.0 downloader had no retry when GitHub's asset
-> CDN connection timed out. Install 1.8.1 or newer once from the release page;
-> its downloader is the retrying one described above.
+## In-Panel Auto-Updater
 
-## Develop from this folder
+The panel checks `Ns345543/openCaption` on launch (at most once every 6 hours, cached in `%APPDATA%\CaptionAI\update.json`) and surfaces a slim update banner when a newer release exists:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1
-powershell -ExecutionPolicy Bypass -File .\setup-ffmpeg.ps1
-```
+- **Update now** streams `openCaption.zip` into `%APPDATA%\CaptionAI\updates\`, verifies size and **SHA-256 checksum** (`SHA256SUMS.txt` / release digest), retries transient CDN/network failures with jittered backoff, and supports instant **Cancel**.
+- When Premiere Pro exits, a lightweight PowerShell helper swaps in the new build (with automatic rollback if the swap fails) while keeping `%APPDATA%\CaptionAI` (API key, themes, MOGRTs, styles, captions, drafts) completely untouched.
 
-`install.ps1` does two things:
+---
 
-1. Junctions `extension\` into `%APPDATA%\Adobe\CEP\extensions\com.captionai.panel`
-   (per-user, no admin rights, and edits you make in this folder are live).
-2. Sets `PlayerDebugMode=1` for CSXS 9–16 so Premiere loads the unsigned panel.
+## Using openCaption
 
-The updater download, retry, checksum and cancel behaviour can be exercised
-without Premiere (a local HTTP server simulates GitHub):
+### 1. Transcribe Timeline Audio
 
-```powershell
-node .\tests\updater.test.js
-```
+1. Open **04 · Settings → API access**, paste your Gemini API key, and click **Save key** (verified automatically).
+2. Open your Premiere sequence and switch to **01 · Transcribe**.
+3. Pick **Caption range**:
+   - **Auto** *(default)* — Selected clips if any are highlighted, else the work area if enabled, else the entire sequence.
+   - **Sequence** — From `00:00:00` to sequence end.
+   - **Work area** — Only the active work-area / in-out span.
+   - **Selection** — Only overlapping selected timeline items.
+4. Choose **Caption language** (output language — e.g. pick **Spanish** to translate any spoken language, **Hinglish (Roman)** for Latin-script Hindi, or **Auto-detect** to preserve spoken speech), **Words / line**, and **Lines / caption**.
+5. Click **Generate captions** (press **Stop** or **Esc** anytime to abort all in-flight requests cleanly).
 
-Then restart Premiere Pro and open **Window → Extensions → openCaption**.
+Generated `.srt` files are saved to `%APPDATA%\CaptionAI\captions\`, imported into a clean project bin named **`99 openCaption`** (`01`, `02`, `03`…), and added onto your sequence as an editable Premiere caption track.
 
-> Running the packaged `install.bat` replaces that junction with a real copy, so
-> your edits stop being live. Re-run `.\install.ps1` here to go back to developing.
+### 2. Style & Animate Captions (`02 · Animate`)
 
-### Verify the Premiere side first (no API calls)
+1. Switch to **02 · Animate** and click **`+ .mogrt…`** or **`+ .prtextstyle…`** to build your reusable preset library (`%APPDATA%\CaptionAI\mogrts` and `%APPDATA%\CaptionAI\styles`).
+2. Browse cards with **live hover previews** (`.mogrt` embedded thumbnails/MP4s or simulated text, and live typographic font/fill/stroke tiles for `.prtextstyle` — plus optional custom **`Preview img…`** images).
+3. Filter by **Search**, **All / MOGRTs / Styles / After Effects / Premiere / 1 Text / Multi-Text**, or assign **custom `#category` tags**.
+4. Configure timeline placement:
+   - **Video track**: `Auto (empty track)` or explicit `V1`–`V6`.
+   - **Screen position**: `Upper`, `Middle`, `Lower`, template `Default`, and exact **Vertical height (`8–92%`)**.
+   - **Text case**: `As written`, `UPPER`, or `Title Case`.
+   - **Smart guards**: **Always fit captions to screen**, **Clamp overlaps between cues**, and **Replace prior MOGRTs in range**.
+5. Enable **Auto-apply .prtextstyle on Transcribe** (or **Auto-apply MOGRT after Transcribe**) so every new transcription automatically places styled captions onto your timeline, or click **Apply to recent captions** anytime on existing cues!
+   - *When a **`.prtextstyle`** is active*: openCaption reads its font, weight, fill, stroke, and shadow, synthesizes a matching Essential Graphics MOGRT cleanly for Premiere, places styled captions on the target video track, and imports the `.prtextstyle` into `99 openCaption / Text Styles`.
 
-In Premiere run **File → Scripts → Run Script File…** and pick
-`tools\premiere-diagnose.jsx`. It dumps every audio clip the panel would use, the
-paths it will read from, skipped clips (no media path / speed changes), offline
-media, and whether `createCaptionTrack()` exists on your build. It changes nothing.
+### 3. Edit Cues & Transcripts (`03 · Editor`)
 
-## Use
+Every generated run automatically loads into **03 · Editor** (or click **⋮ → Import SRT…** to open any external `.srt`):
 
-1. Open the **Settings** tab, paste your Gemini API key and press **Save key**
-   (it validates against the API).
-2. Open the sequence you want captioned.
-3. Pick the caption range:
-   - **Auto** (default) — selected clips if anything is selected, else the work
-     area if it is enabled, else the whole sequence. The log shows what it picked,
-     e.g. `Sequence "Edit" · work area — auto`.
-   - **Sequence** — everything, from 00:00:00 to the sequence end.
-   - **Work area** — the sequence work area / in-out range.
-   - **Selection** — only where selected timeline items overlap.
-4. Press **Generate captions**. A **Stop** button appears next to it while the run
-   is going (or press **Esc**): it hangs up on every open request immediately and
-   discards the partial result, so no caption track is created.
+- **Inline cue edits**: Fix text or adjust start/end times (`hh:mm:ss,mmm`, `mm:ss.mmm`, or seconds) with validation guards and persistent draft recovery (`editor.json`).
+- **Check spelling**: On-demand AI proofreading tailored to English, Hinglish, Hindi, Spanish, and more — surfaces per-cue **`Use this`** / **`keep mine`** actions and **`Fix all`** without altering timing or translating.
+- **Bulk word cleanup (`⋮` menu)**: Remembered whole-word **Remove words…** (e.g. `um`, `uh`, `like`) and **Replace words…** (brand names, Hinglish spellings), automatically tidying stray spacing/punctuation and dropping empty cues.
+- **Export & Re-import**: **Save SRT**, **Export SRT…**, **Export text…** (clean `.txt` script), or **Import edits** to add the corrected caption track onto the sequence.
 
-**Caption language** is the output language, not a guess about the audio. Pick
-**Spanish** and Hindi speech is translated into Spanish before the SRT is built;
-the same applies to French, Turkish, Japanese and the rest of the list.
-**Auto-detect (spoken language)** keeps whatever is spoken and never translates.
-**Hinglish (Roman)** writes Hindi speech in Latin letters
-(`aaj hum naya project discuss karenge`), never Devanagari, keeping English words
-spelled normally.
+### 4. Customize Look & Ambient ASCII Canvas (`04 · Settings`)
 
-A dedicated `*-transcribe` model always answers in the spoken language, and a
-general model can ignore the instruction when the scripts differ. In both cases
-the panel translates the cues in a second text-only pass before building the SRT.
-Cue timings are preserved, and if the translation request fails the original
-captions are kept with a warning instead of being lost. Spelling is not touched
-during the run: the **Editor** tab checks it on demand (see *Editing captions*).
+- Pick any of the **8 built-in themes** or click **`+`** to build your own 4-color palette with a live preview.
+- Tune **Corners (`0px Sharp` ↔ `16px Rounded`)**, toggle **Panel UI animations**, or switch on **Liquid glass cards** for frosted translucency over animated backdrops.
+- In **03 · Ambient canvas**, choose between **`Butterfly`**, **`Airplane`**, **`Dragonfly`**, **`Crane`**, **`Koi`**, **`Jellyfish`**, **`Crab`**, **`Frog`**, or **`Off`**:
+  - Real-time character-cell ASCII rendering with edge anti-aliasing, iridescence shimmer, sparkle, and diffusing energy trails.
+  - Click open background space to **startle creatures** (or **drop food pellets for Koi**!).
+  - Expand **Movement**, creature-specific, and **Look** sliders to customize every physics parameter (`Copy` JSON preset / `Reset` defaults, double-click any label to reset individual knobs).
 
-The panel writes `…\CaptionAI\captions\<sequence>_<timestamp>.srt` and, by default,
-imports it and calls `createCaptionTrack()` so a new captions track appears on the
-sequence. Premiere's ExtendScript cannot replace or delete an existing caption
-track, so each run adds a new one; delete old tracks in Premiere's Text panel if
-you do not want them. Turn off **Build caption track** if you only want the SRT
-file.
+---
 
-Imported SRTs are filed in a bin called **99 openCaption** at the project root
-(created on first use), so they never mix into your own bins. Each caption there
-is numbered `01`, `02`, `03`… in the order you generate it, and the counter is per
-project. On the first run, older SRTs already in the bin are numbered in bin
-order; after that, numbered items keep their numbers and the next run continues
-after the highest one. Other items and bins are left alone. If Premiere refuses,
-the SRT is still on disk — drag it into the Project panel and onto the sequence,
-or onto the track you want to replace.
+## Settings That Matter
 
-## Editing captions
+- **Words / line** & **Lines / caption** — Word-counted caption shaping (default **2 words on 1 line**). Multi-line phrases break naturally on commas and phrase boundaries without exceeding *words × lines*.
+- **Word-level sync** — Scans a 10 ms energy envelope over extracted PCM audio to snap caption edges to real audible speech (`120 ms` tail, closes on >420 ms silences). With `*-transcribe` models, uses exact word-level `start_offset` / `end_offset` timestamps via the Interactions API (closes captions on pauses ≥ 0.28 s).
+- **Chunk length** & **Parallel** — 30s windows with 3 concurrent requests by default. Drop **Parallel** to `1` and raise chunk length to `60s` if your free-tier key hits `429` rate limits; adjust **Speech threshold (dB)** toward `-25 dB` for noisy environments or `-45 dB` for quiet dialogue under music.
+- **Model** — Prefers `flash-lite` models (~2–3 s per 30 s audio window on free-tier keys); press **test** to benchmark text + 1.2 s audio response times on any selected model before running a full sequence.
 
-Every successful run hands its cues to the **Editor** tab; the **⋮** menu on the
-card opens your own `.srt` there instead. Each cue shows its in/out time and its
-text: fix a typo, retime a line, or delete a cue that should not be there.
-**Import edits**, **Save SRT** and **Check spelling** stay on the card; **Replace
-words** and the file actions live under **⋮**:
+---
 
-- **Import SRT…** (⋮ menu, or the **Import SRT…** button shown while the editor
-  is empty) opens any `.srt` from disk. That file is treated as a source:
-  Save SRT and Import edits write new files under `%APPDATA%\CaptionAI`, so the
-  original is never changed.
-- **Export SRT…** (⋮ menu) writes the cues to an `.srt` wherever you pick in the
-  save dialog. When an imported file is open, choosing that same file is refused.
-- **Export text…** (⋮ menu) saves the transcript as a plain `.txt`, one cue per
-  line and no timecodes, wherever you pick. Without a native dialog — for example outside
-  Premiere — both exports go next to the imported SRT when one is open, or to
-  `%APPDATA%\CaptionAI\captions` (SRT) and `%APPDATA%\CaptionAI\transcripts`
-  (text).
-- **Replace words…** (⋮ menu) applies a list of find → replace pairs to every
-  cue: whole words only, any case, so `Mikbanger` becomes `Mukhbanger` while
-  `mikbangers` stays as it is. A blank "replace" deletes the word, and a cue
-  with no text left is dropped. The list is
-  remembered in `%APPDATA%\CaptionAI\replacements.json`; nothing changes until
-  you press **Apply to cues**.
-- **Remove words…** (⋮ menu) deletes filler words like `um`, `uh`, `like` or
-  `matlab` wherever they appear as a whole word, in any case. Leftover double
-  spaces, a space before a comma and repeated commas are tidied up, and cues
-  left with no text are dropped instead of staying blank. The list is remembered
-  in `%APPDATA%\CaptionAI\remove-words.json`; nothing changes until you press
-  **Apply to cues**.
-- **Check spelling** sends the cue text to the AI on demand. It names the language
-  it finds (English, Hinglish, Hindi, Spanish and so on) and returns spelling
-  corrections only: Roman-Hinglish slips, Hindi spellings, missing accents,
-  capitalised names. Nothing is changed by the request.
-- **Save SRT** writes the corrected cues back to the same
-  `…\CaptionAI\captions\…srt` file. Nothing is imported.
-- **Import edits** saves that file and imports a copy as a new caption track on
-  the active sequence at the same timecodes. Premiere's ExtendScript can only
-  create caption tracks — it cannot replace or delete one — so the previous
-  track stays where it is. Delete it in the Timeline (right-click its header)
-  once the new one looks right. If a different sequence is active, the panel
-  says so instead of pretending the cues moved.
+## How Timing is Reconstructed
 
-After a spelling check, every cue with a proposed fix shows the corrected text
-underneath with **Use this** / **keep mine**, and **Fix all (n)** applies every
-suggestion at once. Edits you type yourself replace the suggestion for that cue.
-The check never translates, rephrases or changes the number of lines.
-
-Times accept `hh:mm:ss,mmm`, `mm:ss.mmm` or plain seconds. Invalid times and
-empty cues are marked in red and block the import instead of writing a broken
-SRT. The editor keeps a draft in `%APPDATA%\CaptionAI\editor.json`, so closing
-the panel does not lose your fixes; **reload** discards the draft and reads the
-SRT on disk again. Each imported copy is written to
-`%APPDATA%\CaptionAI\edits` under a new name, so Premiere reads the edited file
-rather than a cached one.
-
-## Settings that matter
-
-- **Words / line** and **Lines / caption** — the shape of one caption, counted in
-  words so it behaves the same for Hinglish and any other language. The defaults
-  are **2 words on 1 line** (a short, one-line caption at a time). Raise *lines* to
-  2–3 for longer phrases; the panel then balances the lines and breaks on commas
-  rather than mid-phrase. A caption never holds more than *words × lines* words —
-  longer model output is split into several captions, each pinned to its own speech.
-- **Word-level sync** — measures a 10 ms energy envelope over the audio of every
-  slice and finds exactly where speech starts and stops. Caption and word edges are
-  placed on those measured spans, so a caption appears when the words become
-  audible and disappears when they end, instead of following the model's rough
-  phrase timestamps. When the selected model returns real word timestamps (see
-  *Model*) those measured times win: every word is placed at the moment it is
-  spoken, and a pause longer than 0.28 s closes the caption so the break in
-  dialogue is a break in the subtitles. Leave this on; with it off the panel falls
-  back to plain proportional splitting.
-- **Build caption track** — on by default. The imported SRT is also placed on the
-  sequence as an editable caption track. Turn it off to only produce the SRT file.
-- **Chunk length** — shorter = better timestamp accuracy, more requests. 30s is the
-  sweet spot; 10s is noticeably tighter but ~3× the calls.
-- **Parallel** — how many chunks are in flight at once (default 3). This is the main
-  speed dial: 10 minutes of audio is ~20 chunks, so 3 in parallel finishes in about
-  a third of the wall time. Raise it to 5–6 if your quota allows; drop to 1 if you
-  start seeing `429` retries in the log.
-- **Stop** — available during a run (or **Esc**). In-flight Gemini requests are
-  destroyed rather than waited out, and the queue stops immediately, so a stop
-  takes effect in well under a second.
-- **Speech threshold (dB)** — the level above which the envelope counts as speech.
-  Raise toward −25 dB for noisy material, lower toward −45 dB for quiet dialogue
-  with music beds.
-- **Model** — the panel prefers a *flash-lite* model, which answered a 30-second
-  slice in ~2.7 s and a 1.2-second one in ~2 s on a free-tier key. `flash` models
-  are slower, and `pro` models are slower still and often have zero free-tier
-  quota (`refresh` lists what your key can actually use). Press **test** to time
-  text and audio for the selected model before committing to a long sequence.
-  Dedicated `*-transcribe` models return a timestamp for **every word** through the
-  Interactions API, which makes the pause handling exact. On a free-tier key that
-  model is capped at **25 requests/day** (~12 minutes of audio at the 30 s chunk
-  length), so use `flash-lite` — whose quota is separate — for long sequences; the
-  panel then times the words from the measured waveform. Transcribe models also
-  pick the spoken language themselves; the panel translates their output to the
-  selected caption language (or rewrites it in Roman Hinglish) in a second pass.
-
-## How the timing is reconstructed
-
-For every 30-second window the panel asks Premiere which clips overlap it, then
-renders each clip's slice at the exact offset:
-
-```
+```text
 clip.start ──► window start ──► clip.end
       │<---- extracted from source: in + (windowStart - clip.start) ---->│
 ```
 
-The PCM is pasted into a zeroed buffer at `(clip.start - windowStart)`, so sample 0
-of the buffer *is* `windowStart` of the sequence. A cue at 4.2s in the response
-becomes 4.2s into the window, i.e. sequence time `windowStart + 4.2`. No drift
-across clips, no accumulated rounding.
+Every 30-second window places extracted clip PCM at its exact timeline offset in a zeroed buffer so timeline gaps stay silence and multi-cut timelines never drift. Phrase anchors are aligned against the 10 ms waveform speech envelope (or exact `*-transcribe` word timestamps), preventing silent padding or runaway subtitle collisions.
 
-That exact PCM is also what the panel listens to. Before the model's cues are used,
-the slice's energy envelope is scanned at 10 ms resolution to find the spans where
-sound actually exists. The model's phrase timestamps are only coarse anchors: each
-cue's words are spread across the speech spans it overlaps, weighted by syllable
-count, and a word is never stretched across a pause. A caption then starts on its
-first word's measured onset and ends 120 ms after its last word — no padding, no
-minimum duration pushing it into silence. A detected pause longer than 420 ms
-always ends the caption. The final pass over the whole sequence only sorts, clamps
-and trims overlaps; it never delays a caption to resolve a collision, which is what
-used to push later cues behind the speech.
+---
 
-When the model is a dedicated `*-transcribe` one, the panel skips that estimation
-and asks the Interactions API for word-level timestamps in the same request
-(`timestamp_granularities: ["word"]`). Every word comes back with an exact
-`start_offset` / `end_offset`, so a caption is built from real speech times: it
-opens on its first word, closes 80 ms after its last word, and the next caption
-starts when the speaker resumes. A pause of 0.28 s or more between words is kept
-as a gap instead of being filled with a cue. If that request is unavailable (quota,
-older key), the panel notes it in the log and falls back to the waveform method
-above, so timing is still reconstructed — just from the envelope rather than from
-exact word times.
+## Known Limits
 
-Together this keeps captions locked to the timeline: an imported caption track
-switches lines exactly when the speaker does, and gaps in dialogue stay gaps in the
-subtitles.
+- **Speed-changed clips** — Constant speed changes stay tempo-matched in sync; variable speed ramps use one factor and can drift slightly.
+- **Nested sequences / Multicam / Merged clips / Offline media** — Skipped with per-clip log warnings because Premiere exposes no direct source path.
+- **Muted / disabled tracks** — Ignored cleanly; overlapping unmuted tracks prefer lower track numbers (`A1` before `A2`).
+- **Caption replacement** — Premiere's ExtendScript API can create caption tracks but cannot modify or delete existing caption tracks in place; delete older caption tracks in Premiere's Timeline/Text panel after **Import edits**.
+- **Local key storage** — Gemini API keys are stored locally (XOR obfuscated, not hardware encrypted) in `%APPDATA%\CaptionAI\config.json`.
 
-## Known limits
-
-- **Speed-changed clips** — the source span is tempo-matched back to the timeline
-  before transcription, so a constant speed change stays in sync. Speed ramps are
-  approximated with one factor and can drift slightly.
-- **Nested sequences** — skipped with a warning; Premiere exposes them as project
-  items without a media path. Flatten or caption the inner sequence instead.
-- **Multicam / merged clips** — same story; the underlying file isn't reported.
-- **Offline media** — reported per clip and skipped.
-- **Muted / disabled audio tracks** — skipped, so you won't caption a scratch track.
-- **Overlapping tracks** — where clips overlap, the lower track number wins (A1 before
-  A2). Keep dialogue on A1, or mute the tracks you don't want transcribed.
-- **Chunk boundaries** — a phrase that straddles a 30s edge can arrive as two cues.
-  Raise the chunk length if that bothers you; the text is never lost.
-- **Music-only passages** — omitted rather than described.
-- **Gemini phrase timestamps are approximate.** With `flash-lite` they are only
-  used as anchors; the caption edges come from the measured speech envelope. Inside
-  one continuous phrase, word boundaries are estimated from syllable weight, so a
-  very fast run of words can still be off by roughly a tenth of a second. A
-  `*-transcribe` model avoids this by returning exact word times. A pass in the
-  Text panel is still normal practice for broadcast.
-- **Translation** — the selected caption language is enforced by the prompt and,
-  when the output still uses the source script, by a second text pass. Changing
-  language inside the same script (English speech, Spanish captions) relies on the
-  model following the instruction; check the first cues before a long run.
-- **API key storage** is local obfuscation, not encryption. Anyone with access to
-  your Windows account can read `%APPDATA%\CaptionAI\config.json` and recover the
-  Gemini key. That is fine for a personal tool; it is why no key is bundled.
-- **Provider limits and model names change.** The panel fetches live model lists,
-  but Google controls availability, quotas and pricing. A key can verify while a
-  particular model is unavailable to that account; the panel reports the API's
-  answer and lets you choose another model.
+---
 
 ## Troubleshooting
 
-**Panel doesn't appear in Window → Extensions**
-Re-run `install.ps1`, confirm the junction exists in
-`%APPDATA%\Adobe\CEP\extensions\`, confirm `PlayerDebugMode=1` under
-`HKCU\Software\Adobe\CSXS.13`, then fully quit and relaunch Premiere.
+- **Panel missing in Window → Extensions**: Re-run `install.bat` (or `install.ps1` in dev), confirm `PlayerDebugMode=1` for your CSXS version (`HKCU\Software\Adobe\CSXS.*`), and restart Premiere Pro.
+- **"ffmpeg.exe not found"**: Use a packaged release, run `setup-ffmpeg.ps1`, or browse to your `ffmpeg.exe` under **Settings → Advanced**.
+- **Badge says `invalid` or `not verified`**: Check the Activity Log for the exact API message (`API_KEY_INVALID`, disabled Generative Language API, IP/website key restrictions, or network/quota error).
+- **"No usable audio clips found"**: Ensure dialogue tracks are unmuted, media is online, and nested/multicam clips are flattened.
+- **"No output for 60s" / Slow reasoning model**: Press **test** next to Model; switch to a `flash-lite` model if audio probes time out on a free-tier quota.
+- **Frequent `429` retries**: Set **Settings → Advanced → Parallel** to `1` and **Chunk (s)** to `60`.
 
-**"Node.js is not available in this panel"**
-The manifest's `--enable-nodejs` / `--mixed-context` flags didn't apply. Re-install
-and restart; verify `CSXS/manifest.xml` is being read (not a stale copy).
-
-**"ffmpeg.exe not found"**
-Run `setup-ffmpeg.ps1`, or point the panel at any `ffmpeg.exe` under Settings > Advanced.
-
-**The key badge says "invalid" or "not verified"**
-The log shows what Google actually answered. **invalid** means Google returned
-`API_KEY_INVALID` — copy the key again from AI Studio, or create a new one.
-**not verified** means Google refused the request for another reason: a disabled
-Generative Language API, a key restricted to websites/IPs/apps, a rate limit, a
-server error, or no network from the panel. The log line names the cause and what
-to change. Keys are stripped of pasted whitespace and saved before verification;
-the masked field and the badge's **saved** state confirm the key reached
-`%APPDATA%\CaptionAI\config.json`.
-
-**"Premiere rejected the script"**
-`host.jsx` didn't load. Restart Premiere. While debugging, load
-`http://localhost:7777` in Chrome and open DevTools for the panel.
-
-**"Could not serialise response: ReferenceError: JSON is undefined"**
-ExtendScript on that Premiere build has no native `JSON`. Current packages
-bundle `jsx/json2.js` and `host.jsx` loads it automatically. If the panel still
-reports this, `jsx/json2.js` was not copied: reinstall the extension and restart
-Premiere.
-
-**"No usable audio clips found"**
-The range's tracks are muted, the clips are offline, or the clips are nested
-sequences. Unmute A1/A2 and check the log for per-clip warnings.
-
-**Caption track not created**
-Some builds refuse `createCaptionTrack` for a freshly imported SRT. The file is on
-disk; drag it from the Project panel onto the sequence.
-
-**"produced no output" / "no output for 60s"**
-The key and the network are fine — the request reached Google and the model never
-answered. Reasoning models do this when they spend their whole turn thinking.
-The panel already asks for the smallest reasoning level each model
-family accepts (and drops the setting if the API rejects it), and it stops the run
-instead of timing out once per slice. Press **test** next to Model: it sends a
-text probe and then a 1.2-second audio probe. If text answers in ~2 s and audio
-does not, switch to a **flash-lite** model — on a free-tier key it answered the
-audio probe in ~2 s while `gemini-3.8-flash` took ~100 s.
-
-**Every request retries 429**
-You are hitting the free-tier rate limit. Set **Settings → Advanced → Parallel** to 1 and
-raise the chunk length to 60 s.
+---
 
 ## Layout
 
-```
+```text
 extension/
-  CSXS/manifest.xml        panel registration, Node + mixed context
-  index.html               panel UI
-  css/style.css
-  js/nodeglue.js           Node built-ins (fs, https, child_process)
-  js/CSInterface.js        minimal CEP bridge
-  js/config.js             settings in %APPDATA%\CaptionAI\config.json
-  js/premiere.js           async wrapper over ExtendScript
-  js/audio.js              ffmpeg slicing, PCM assembly, speech envelope
-  js/gemini.js             REST calls, JSON schema, retries
-  js/srt.js                word timing, cue clean-up, wrapping, SRT build + parse
-  js/editor.js             Editor tab: cue list, word replacer/remover, SRT open/export, transcript export, edited-SRT import
-  js/roman.js              Devanagari → Roman Hinglish
-  js/translate.js          forces the selected caption language
-  js/proofread.js          language-aware spelling pass over the cue lines
-  js/update.js             GitHub release check + verified self-updater
-  js/app.js                pipeline + UI
-  jsx/host.jsx             ExtendScript: clip scan, SRT import, caption track
-  jsx/json2.js             JSON polyfill for ExtendScript (loaded by host.jsx)
-  tools/ffmpeg/            ffmpeg.exe lands here
-install.ps1                junction + debug mode (development)
-setup-ffmpeg.ps1           download ffmpeg
-installer/                 the Windows installer shipped to users
-  install.ps1              copy + unlock + registry, no admin rights
-  install.bat              double-click entry point
-  uninstall.bat
-  README-FIRST.txt         short instructions for end users
-build.ps1                  package a release (ZXP + Windows zip)
-docs/screenshots/          panel screenshots used by this README
-docs/branding/             icon (SVG + PNG) and the 1280x640 social preview
-LICENSE                    MIT, covers the panel
-THIRD-PARTY-NOTICES.txt    ffmpeg GPL notice
+  CSXS/manifest.xml        CEP panel manifest (Node + mixed context)
+  index.html               Tabbed UI structure (Transcribe, Animate, Editor, Settings)
+  css/style.css            Responsive HUD CSS, 8 themes, rounded corners & Liquid Glass
+  js/nodeglue.js           Node.js built-ins bridge
+  js/CSInterface.js        Minimal CEP ExtendScript & dialog bridge
+  js/config.js             Persistent settings & migration in %APPDATA%\CaptionAI\config.json
+  js/premiere.js           Async ExtendScript wrapper + dynamic host loader
+  js/audio.js              ffmpeg extraction, PCM buffer assembly, 10 ms waveform envelope
+  js/gemini.js             Gemini REST + Interactions word-timing requests + retries
+  js/srt.js                Word-envelope alignment, wrapping, SRT build & parse
+  js/mogrt.js              .mogrt & .prtextstyle parser, preview extractor & styled MOGRT builder
+  js/animate.js            Animate tab library, filters, categories, previews & timeline placement
+  js/editor.js             Editor tab: cues, AI spell check, remove/replace rules, SRT/TXT I/O
+  js/ambient.js            Interactive ASCII creature & paper airplane canvas engine
+  js/theme.js              8 palettes, custom theme derivation, corners, motion & glass
+  js/roman.js              Devanagari → Roman Hinglish pass
+  js/translate.js          Target-language translation pass
+  js/proofread.js          AI spell-check pass
+  js/update.js             GitHub Releases check & SHA-256 verified self-updater
+  js/app.js                Pipeline orchestrator & UI wiring
+  jsx/host.jsx             ES3 ExtendScript: clip scan, SRT import, caption & MOGRT placement
+  jsx/json2.js             ES3 JSON polyfill
+  tools/ffmpeg/            Bundled ffmpeg.exe
+installer/                 Windows end-user install.bat, install.ps1 & uninstall.bat
+tests/updater.test.js      Automated updater download/retry/checksum/cancel test suite
+tools/                     premiere-diagnose.jsx timeline diagnostic helper
+docs/screenshots/          Updated v1.13.0 plugin screenshots (01..10)
+docs/branding/             Vector & raster icons + social preview banner
+build.ps1                  Signed .zxp + Windows installer .zip builder
+install.ps1                Dev junction + CSXS PlayerDebugMode helper
+setup-ffmpeg.ps1           Downloads ffmpeg.exe into extension/tools/ffmpeg
+THIRD-PARTY-NOTICES.txt    FFmpeg (GPLv3), json2 (PD), and ascii-animals (Apache-2.0 / MIT) notices
+LICENSE                    MIT License
 ```
 
-## Development
+---
 
-- The junction means edits to `index.html`/`js/` are picked up by reopening the
-  panel; `host.jsx` changes need a Premiere restart.
-- `localhost:7777` serves the CEP debugger for the panel.
-- `js/*.js` are plain scripts (no bundler). `jsx/host.jsx` must stay ES3 — no
-  `let`, arrow functions or `Array.map`.
-- `node --check extension/js/*.js` catches syntax errors; `srt.js`, `gemini.js`
-  and `audio.js` are testable in isolation with a stubbed `NODE` object.
-
-## Build a release
+## Develop & Build
 
 ```powershell
-.\build.ps1                 # signed .zxp + Windows installer zip
-.\build.ps1 -Version 1.0.1  # stamp a new version into the manifest and panel
-.\build.ps1 -SkipSign       # Windows zip only, no ZXP
+# Link extension folder live into Premiere CEP & download ffmpeg
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+powershell -ExecutionPolicy Bypass -File .\setup-ffmpeg.ps1
+
+# Syntax check scripts & run updater tests
+node --check extension/js/*.js
+node .\tests\updater.test.js
+
+# Build signed .zxp + openCaption.zip + SHA256SUMS.txt into dist\
+powershell -ExecutionPolicy Bypass -File .\build.ps1 -Version 1.13.0
 ```
 
-Output lands in `dist\`:
+- Edits to `index.html`, `css/`, and `js/` take effect by closing and reopening the panel (`localhost:7777` exposes CEP DevTools); edits to `jsx/host.jsx` reload automatically or on Premiere restart and must stay ES3-compatible.
 
-| File | What it is |
-|---|---|
-| `openCaption.zxp` | signed CEP extension, ~37 MB (ffmpeg compresses well) |
-| `openCaption.zip` | `install.bat` + panel + the .zxp, ~74 MB |
-| `SHA256SUMS.txt` | checksums for both |
+---
 
-The build downloads Adobe's `ZXPSignCmd.exe` once into `.build\tools`, creates a
-self-signed certificate in `.build\cert` on first run, signs, then verifies the
-signature before writing the zip. `.build` and `dist` are gitignored.
+## Credits & Third-Party Notices
 
-Notes:
+- **[FFmpeg](https://ffmpeg.org/)** (`www.gyan.dev` essentials build) — GPLv3, bundled unmodified for direct source audio extraction.
+- **[ascii-animals-extension](https://github.com/sushilbyte7/ascii-animals-extension)** (Apache-2.0, Copyright 2026 Sushil Kumar) & **[ascii-animals](https://github.com/DesignerStephen1/ascii-animals)** (MIT, Copyright 2026 drewdi) — Inspiration and character-cell ASCII animation & flock simulation logic powering **Midnight**, **Pond**, and **Ambient canvas**.
+- **[json2.js](https://github.com/douglascrockford/JSON-js)** (Public Domain) — ExtendScript JSON compatibility.
+- **[Orion Store](https://github.com/RookieEnough/Orion-Store)** — Open-source app catalog hosting `openCaption` for easy discovery.
 
-- The extension id is `com.captionai.panel`; both install routes write to
-  `%APPDATA%\Adobe\CEP\extensions\com.captionai.panel`, so they replace each other.
-- A self-signed ZXP is what free CEP panels ship with. Some CEP builds still want
-  `PlayerDebugMode=1`, which `install.bat` sets (and the ZXP docs mention).
-- `ffmpeg.exe` is GPLv3. It is bundled unmodified as a separate executable and
-  covered by `THIRD-PARTY-NOTICES.txt`; ship that file with any redistribution, or
-  build with `-SkipSign`-style trimming if you prefer users to supply their own.
-- An Apple Silicon / Intel Mac build is not packaged: it would need a macOS
-  `ffmpeg` binary and `install.command` instead of `install.bat`.
+See [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt) and [LICENSE](LICENSE) for full license texts.
